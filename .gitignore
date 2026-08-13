@@ -1,0 +1,15 @@
+# Секреты (токен Figma и прочее)
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Сборка
+build/
+dist/
+*.spec.bak
+installer_output/
