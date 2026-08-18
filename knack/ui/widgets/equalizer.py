@@ -3,19 +3,20 @@
 
 Волна идёт справа налево: правая полоска поднимается первой, средняя с
 задержкой, левая последней; дойдя до максимума, правая начинает опускаться, и
-та же очередь повторяется вниз. На паузе полоски плавно оседают почти в ноль,
-таймер останавливается.
+та же очередь повторяется вниз. На паузе полоски плавно оседают почти в ноль и
+анимация снимается с общих часов.
 """
 
 import math
 import time
 
-from PySide6.QtCore import Qt, QRectF, QTimer
+from PySide6.QtCore import Qt, QRectF
 from PySide6.QtGui import QPainter
 from PySide6.QtWidgets import QWidget
 
 from ...core.scale import sf
 from .. import theme
+from ..anim import Ticker
 
 BAR_W    = 2      # ширина полоски, px макета
 BAR_GAP  = 2      # просвет между полосками
@@ -24,7 +25,7 @@ BARS     = (3, 5, 7)   # максимум для левой, средней, п�
 
 PERIOD   = 1.15   # секунд на полный цикл вверх-вниз
 LAG      = 0.13   # задержка соседней полоски, доля периода
-FPS      = 30
+FADE     = 4.0    # скорость затухания на паузе, 1/с
 
 
 class Equalizer(QWidget):
@@ -33,11 +34,9 @@ class Equalizer(QWidget):
         self.setAttribute(Qt.WA_TransparentForMouseEvents, True)
         self._role = role
         self._playing = False
-        self._level = 0.0          # общая амплитуда 0..1, плавно гасится на паузе
+        self._level = 0.0          # общая амплитуда 0..1
         self._t0 = time.monotonic()
-        self._timer = QTimer(self)
-        self._timer.setInterval(int(1000 / FPS))
-        self._timer.timeout.connect(self._tick)
+        self._ticker = Ticker(self._tick)
 
     def base_size(self):
         """Размер в координатах макета: 3 полоски по 2 px с просветами."""
@@ -51,25 +50,29 @@ class Equalizer(QWidget):
         self._playing = playing
         if playing:
             self._t0 = time.monotonic()
-            if self.isVisible():
-                self._timer.start()
-        # На паузе таймер не глушим сразу: даём полоскам осесть в _tick.
+        self._sync()
+
+    def _sync(self):
+        need = self.isVisible() and (self._playing or self._level > 0.01)
+        if need:
+            self._ticker.start()
+        else:
+            self._ticker.stop()
 
     def showEvent(self, event):
         super().showEvent(event)
-        if self._playing or self._level > 0.01:
-            self._timer.start()
+        self._sync()
 
     def hideEvent(self, event):
         super().hideEvent(event)
-        self._timer.stop()
+        self._ticker.stop()
 
-    def _tick(self):
+    def _tick(self, dt):
         target = 1.0 if self._playing else 0.0
-        self._level += (target - self._level) * 0.18
+        self._level += (target - self._level) * min(1.0, FADE * dt)
         if not self._playing and self._level < 0.01:
             self._level = 0.0
-            self._timer.stop()
+            self._ticker.stop()
         self.update()
 
     def paintEvent(self, _event):
@@ -91,5 +94,5 @@ class Equalizer(QWidget):
             hi = sf(peak)
             h = lo + (hi - lo) * wave * self._level
             x = i * (bar_w + gap)
-            r = QRectF(x, bottom - h, bar_w, h)
-            p.drawRoundedRect(r, bar_w / 2, bar_w / 2)
+            p.drawRoundedRect(QRectF(x, bottom - h, bar_w, h),
+                              bar_w / 2, bar_w / 2)

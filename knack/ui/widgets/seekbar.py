@@ -1,10 +1,14 @@
 """
 Полоса прогресса с перемоткой.
 
-Виджет выше самой полосы: полоса 4 px не поймать мышью, поэтому кликабельная
-область занимает всю строку, а полоса рисуется по центру. Пока пользователь
-тянет, значения извне игнорируются — иначе бегунок дёргался бы назад на каждом
-опросе позиции.
+Виджет выше самой полосы: полосу 4 px не поймать мышью, поэтому кликабельная
+область занимает всю строку, а полоса рисуется по центру.
+
+Под курсором появляется метка-превью — куда встанет ползунок, если кликнуть.
+Цвет у неё свой, чтобы не спорить с самим прогрессом.
+
+Пока пользователь тянет, значения извне игнорируются: иначе бегунок дёргался бы
+назад на каждом опросе позиции.
 """
 
 from PySide6.QtCore import Qt, QRectF, Signal
@@ -14,8 +18,10 @@ from PySide6.QtWidgets import QWidget
 from ...core.scale import sf
 from .. import theme
 
-BAR_H  = 4     # высота полосы, px макета
-KNOB_R = 4     # радиус бегунка при наведении
+BAR_H       = 4     # высота полосы, px макета
+KNOB_R      = 4     # радиус бегунка при наведении
+PREVIEW_W   = 2     # ширина метки превью
+PREVIEW_H   = 9     # высота метки превью
 
 
 class SeekBar(QWidget):
@@ -25,20 +31,22 @@ class SeekBar(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setCursor(Qt.PointingHandCursor)
+        self.setMouseTracking(True)     # превью нужно и без нажатой кнопки
+        self.setAttribute(Qt.WA_Hover, True)
         self._position = 0.0
         self._duration = 0.0
         self._hover = False
+        self._hover_x = 0.0
         self._drag = False
         self._drag_frac = 0.0
-        self.setAttribute(Qt.WA_Hover, True)
 
     # --- данные ---------------------------------------------------------- #
 
     def set_values(self, position, duration):
         if self._drag:
             return
-        changed = (abs(position - self._position) > 0.05
-                   or abs(duration - self._duration) > 0.05)
+        changed = (abs(position - self._position) > 0.02
+                   or abs(duration - self._duration) > 0.02)
         self._position = max(0.0, float(position))
         self._duration = max(0.0, float(duration))
         if changed:
@@ -54,6 +62,12 @@ class SeekBar(QWidget):
     def is_scrubbing(self):
         return self._drag
 
+    def preview_seconds(self):
+        """Секунда под курсором или None, если курсор вне полосы."""
+        if not self._hover or self._duration <= 0:
+            return None
+        return self._frac_at(self._hover_x) * self._duration
+
     # --- события --------------------------------------------------------- #
 
     def _frac_at(self, x):
@@ -63,6 +77,7 @@ class SeekBar(QWidget):
 
     def enterEvent(self, event):
         self._hover = True
+        self._hover_x = event.position().x()
         self.update()
         super().enterEvent(event)
 
@@ -80,9 +95,11 @@ class SeekBar(QWidget):
         self.update()
 
     def mouseMoveEvent(self, event):
+        self._hover = True
+        self._hover_x = event.position().x()
         if self._drag:
-            self._drag_frac = self._frac_at(event.position().x())
-            self.update()
+            self._drag_frac = self._frac_at(self._hover_x)
+        self.update()
 
     def mouseReleaseEvent(self, event):
         if event.button() != Qt.LeftButton or not self._drag:
@@ -104,9 +121,15 @@ class SeekBar(QWidget):
         h = sf(BAR_H)
         y = (self.height() - h) / 2
         r = h / 2
-        full = QRectF(0, y, self.width(), h)
         p.setBrush(theme.color("track"))
-        p.drawRoundedRect(full, r, r)
+        p.drawRoundedRect(QRectF(0, y, self.width(), h), r, r)
+
+        if self._hover and self._duration > 0 and not self._drag:
+            pw, ph = sf(PREVIEW_W), sf(PREVIEW_H)
+            x = min(max(self._hover_x - pw / 2, 0), self.width() - pw)
+            p.setBrush(theme.color("track_preview"))
+            p.drawRoundedRect(QRectF(x, (self.height() - ph) / 2, pw, ph),
+                              pw / 2, pw / 2)
 
         frac = self.fraction()
         if frac > 0:

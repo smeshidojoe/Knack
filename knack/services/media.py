@@ -8,6 +8,13 @@
 Опрос идёт только пока вкладка «Музыка» открыта (set_active). Панель закрыта —
 таймеров нет вовсе, как в Cyclop: постоянно тикающий опрос ради невидимого окна
 это чистый расход батареи.
+
+Выбор сессии залипающий. `GetCurrentSession` отдаёт «текущую» по правилам самой
+Windows, и она умеет переключиться на постороннее приложение сразу после нашей
+же команды: в системе висят сессии всех программ, когда-либо игравших звук
+(мессенджер с голосовым за вчера — тоже сессия), и после паузы Windows может
+выбрать любую из них. Поэтому мы держимся за выбранную сессию, пока она
+существует, и уходим только на ту, что реально играет.
 """
 
 import asyncio
@@ -122,6 +129,7 @@ class MediaService(QObject):
     """Сигнал `updated` отдаёт MediaState или None, если ничего не играет."""
 
     updated = Signal(object)
+    sources_changed = Signal(list)      # [(app_id, app_name), ...]
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -132,6 +140,14 @@ class MediaService(QObject):
         self._wake = None            # asyncio.Event, будит цикл при set_active
         self._manager = None
         self._art_cache = ("", None)  # (track_key, bytes)
+
+        # Читаются из потока интерфейса, пишутся из потока службы. Присваивание
+        # списка/строки атомарно, блокировка не нужна.
+        self._sources = []           # [(app_id, app_name), ...]
+        self._locked = ""            # app_id сессии, за которой следим
+        self._pinned = False         # выбрана вручную, автоматике не отдаём
+        self._no_sessions_api = False   # get_sessions недоступен, жалуемся один раз
+
         self._available = _import_winrt() is not None
         if not self._available:
             logbook.log("media: winrt не установлен, вкладка «Музыка» будет пустой")
@@ -160,6 +176,7 @@ class MediaService(QObject):
             self._active.set()
         else:
             self._active.clear()
+            self._pinned = False     # ручной выбор живёт до закрытия вкладки
         loop = self._loop
         if loop is not None:
             loop.call_soon_threadsafe(self._wake_up)
@@ -167,6 +184,42 @@ class MediaService(QObject):
     def _wake_up(self):
         if self._wake is not None:
             self._wake.set()
+
+    # --- источники звука ---------------------------------------------------- #
+
+    def sources(self):
+        """Список активных источников: [(app_id, человеческое имя), ...]."""
+        return list(self._sources)
+
+    def source_count(self):
+        return len(self._sources)
+
+    def current_source(self):
+        return self._locked
+
+    def next_source(self):
+        """Переключиться на следующий источник по кругу."""
+        sources = self._sources
+        if len(sources) < 2:
+            return
+        ids = [app_id for app_id, _ in sources]
+        try:
+            index = ids.index(self._locked)
+        except ValueError:
+            index = -1
+        self._locked = ids[(index + 1) % len(ids)]
+        self._pinned = True
+        loop = self._loop
+        if loop is not None:
+            loop.call_soon_threadsafe(self._wake_up)
+
+    def select_source(self, app_id):
+        if app_id:
+            self._locked = app_id
+            self._pinned = True
+            loop = self._loop
+            if loop is not None:
+                loop.call_soon_threadsafe(self._wake_up)
 
     # --- команды плеера ----------------------------------------------------- #
 
@@ -189,9 +242,11 @@ class MediaService(QObject):
             return
 
         async def run():
-            session = self._session()
+            session = self._pick_session()
             if session is None:
                 return
+            # Команда уходит именно в ту сессию, что показана на панели: иначе
+            # пауза улетала бы в то, что Windows считает «текущим» прямо сейчас.
             try:
                 await call(session)
             except Exception:
@@ -251,17 +306,93 @@ class MediaService(QObject):
                 if not self._stop.is_set() and self._active.is_set():
                     await self._push()
 
-    def _session(self):
+    # --- выбор сессии ------------------------------------------------------- #
+
+    @staticmethod
+    def _is_playing(session):
+        try:
+            return int(session.get_playback_info().playback_status) == STATUS_PLAYING
+        except Exception:
+            return False
+
+    def _current_session(self):
         try:
             return self._manager.get_current_session() if self._manager else None
         except Exception:
             return None
 
+    def _pick_session(self):
+        """Сессия, которую показываем, и обновление списка источников."""
+        if self._manager is None:
+            return None
+        try:
+            sessions = list(self._manager.get_sessions() or [])
+        except Exception:
+            # get_sessions отдаёт IVectorView, а его проекция живёт в отдельном
+            # пакете winrt-Windows.Foundation.Collections. Без него список
+            # источников недоступен — работаем по одной текущей сессии, чтобы
+            # вкладка не оставалась пустой.
+            if not self._no_sessions_api:
+                self._no_sessions_api = True
+                logbook.exc("media get_sessions")
+                logbook.log("media: список источников недоступен, "
+                            "поставь winrt-Windows.Foundation.Collections")
+            current = self._current_session()
+            sessions = [current] if current is not None else []
+
+        by_id = {}
+        for session in sessions:
+            try:
+                app_id = session.source_app_user_model_id or ""
+            except Exception:
+                continue
+            if app_id and app_id not in by_id:
+                by_id[app_id] = session
+
+        sources = [(app_id, app_name(app_id)) for app_id in by_id]
+        if sources != self._sources:
+            self._sources = sources
+            self.sources_changed.emit(list(sources))
+
+        if not by_id:
+            self._locked = ""
+            self._pinned = False
+            return None
+
+        locked = by_id.get(self._locked)
+        if locked is not None:
+            if self._pinned or self._is_playing(locked):
+                return locked
+            # Залоченный молчит, а кто-то другой играет — уходим к нему.
+            for app_id, session in by_id.items():
+                if app_id != self._locked and self._is_playing(session):
+                    self._locked = app_id
+                    return session
+            return locked
+
+        current = self._current_session()
+        if current is not None:
+            try:
+                app_id = current.source_app_user_model_id or ""
+            except Exception:
+                app_id = ""
+            if app_id in by_id:
+                self._locked = app_id
+                self._pinned = False
+                return by_id[app_id]
+
+        app_id, session = next(iter(by_id.items()))
+        self._locked = app_id
+        self._pinned = False
+        return session
+
+    # --- сбор состояния ----------------------------------------------------- #
+
     async def _push(self):
         self.updated.emit(await self._collect())
 
     async def _collect(self):
-        session = self._session()
+        session = self._pick_session()
         if session is None:
             return None
         state = MediaState()
@@ -280,10 +411,13 @@ class MediaService(QObject):
             state.duration = max(0.0, timeline.end_time.total_seconds() - start)
             position = max(0.0, timeline.position.total_seconds() - start)
             if state.playing:
-                # Позиция отдаётся на момент last_updated_time, а не «сейчас».
+                # Позиция относится к моменту last_updated_time, а не «сейчас».
+                # Часть источников обновляет таймлайн раз в несколько минут,
+                # поэтому поправку ограничиваем длиной трека, а не парой секунд.
                 drift = (datetime.now(timezone.utc)
                          - timeline.last_updated_time).total_seconds()
-                if 0 <= drift < 30:
+                limit = state.duration if state.duration else 6 * 3600
+                if 0 <= drift <= limit:
                     position += drift
             if state.duration:
                 position = min(position, state.duration)

@@ -24,6 +24,7 @@ _PROBE = 128        # разрешение промера границ глиф�
 
 _cache = {}
 _box_cache = {}
+_mask_cache = {}
 _missing = set()
 
 
@@ -40,6 +41,69 @@ def _dpr():
     return scr.devicePixelRatio() if scr else 1.0
 
 
+def _raster_mask(path):
+    """
+    PNG-исходник, приведённый к силуэту с прозрачными «дырами».
+
+    Иконки из Figma выгружаются как есть — светлый глиф и тёмные детали внутри
+    (полоски на планшете, прорези), причём тёмное непрозрачно: на чёрной панели
+    оно и так читается как фон. Если такую картинку залить одним цветом, детали
+    исчезают и остаётся сплошное пятно.
+
+    Поэтому прозрачность пересобираем из яркости: светлое — тело глифа, тёмное —
+    дыра. Картинки, нарисованные силуэтом (сплошь чёрные, вся форма в альфе),
+    остаются как были: у них максимум яркости нулевой, и правило не применяется.
+    """
+    pm = _mask_cache.get(path)
+    if pm is not None:
+        return pm
+
+    img = QImage(path)
+    if img.isNull():
+        pm = QPixmap()
+        _mask_cache[path] = pm
+        return pm
+    img = img.convertToFormat(QImage.Format_ARGB32)
+
+    w, h = img.width(), img.height()
+    stride = img.bytesPerLine()
+    bits = bytearray(img.constBits())
+
+    # Порядок байтов ARGB32 в памяти на little-endian: B, G, R, A.
+    peak = 0
+    for y in range(h):
+        row = bits[y * stride: y * stride + w * 4]
+        for x in range(w):
+            if row[x * 4 + 3] < 8:
+                continue
+            lum = (row[x * 4 + 2] * 299 + row[x * 4 + 1] * 587
+                   + row[x * 4] * 114) // 1000
+            if lum > peak:
+                peak = lum
+
+    out = QImage(w, h, QImage.Format_ARGB32)
+    out.fill(Qt.transparent)
+    dst = bytearray(w * h * 4)
+    for y in range(h):
+        row = bits[y * stride: y * stride + w * 4]
+        base = y * w * 4
+        for x in range(w):
+            alpha = row[x * 4 + 3]
+            if alpha and peak > 8:
+                lum = (row[x * 4 + 2] * 299 + row[x * 4 + 1] * 587
+                       + row[x * 4] * 114) // 1000
+                alpha = min(255, alpha * min(255, lum * 255 // peak) // 255)
+            dst[base + x * 4 + 0] = 255
+            dst[base + x * 4 + 1] = 255
+            dst[base + x * 4 + 2] = 255
+            dst[base + x * 4 + 3] = alpha
+    out = QImage(bytes(dst), w, h, w * 4, QImage.Format_ARGB32).copy()
+
+    pm = QPixmap.fromImage(out)
+    _mask_cache[path] = pm
+    return pm
+
+
 def _draw_source(painter, path, side):
     """Рисует исходник вписанным в квадрат side x side."""
     if path.endswith(".svg"):
@@ -52,10 +116,10 @@ def _draw_source(painter, path, side):
         else:
             r.render(painter, QRectF(0, 0, side, side))
     else:
-        src = QPixmap(path)
+        src = _raster_mask(path)
         if not src.isNull():
-            src = src.scaled(int(side), int(side), Qt.KeepAspectRatio,
-                             Qt.SmoothTransformation)
+            src = src.scaled(max(1, int(side)), max(1, int(side)),
+                             Qt.KeepAspectRatio, Qt.SmoothTransformation)
             painter.drawPixmap((int(side) - src.width()) // 2,
                                (int(side) - src.height()) // 2, src)
 

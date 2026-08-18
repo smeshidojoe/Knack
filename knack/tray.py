@@ -1,11 +1,14 @@
 """Значок в трее: показать панель, автозапуск, выход."""
 
-from PySide6.QtCore import QObject, Signal
-from PySide6.QtGui import QAction, QIcon
-from PySide6.QtWidgets import QMenu, QSystemTrayIcon
+import os
 
-from .core import autostart, icons
-from .core.constants import APP_NAME, VERSION
+from PySide6.QtCore import QObject, QPoint, Signal
+from PySide6.QtGui import QCursor, QIcon
+from PySide6.QtWidgets import QSystemTrayIcon
+
+from .core import autostart, i18n, icons
+from .core.constants import APP_ICO, APP_NAME, APP_VERSION
+from .ui.menu import Menu
 
 
 class Tray(QObject):
@@ -15,35 +18,20 @@ class Tray(QObject):
     def __init__(self, settings, parent=None):
         super().__init__(parent)
         self.settings = settings
+        self._menu = None
 
         self.icon = QSystemTrayIcon(self._icon(), parent)
-        self.icon.setToolTip("%s %s" % (APP_NAME, VERSION))
-
-        menu = QMenu()
-        act_show = QAction("Показать панель", menu)
-        act_show.triggered.connect(self.show_requested.emit)
-        menu.addAction(act_show)
-
-        menu.addSeparator()
-
-        self.act_autostart = QAction("Запускать с Windows", menu)
-        self.act_autostart.setCheckable(True)
-        self.act_autostart.setChecked(bool(settings.get("autostart")))
-        self.act_autostart.toggled.connect(self._toggle_autostart)
-        menu.addAction(self.act_autostart)
-
-        menu.addSeparator()
-
-        act_quit = QAction("Выход", menu)
-        act_quit.triggered.connect(self.quit_requested.emit)
-        menu.addAction(act_quit)
-
-        self._menu = menu
-        self.icon.setContextMenu(menu)
+        self.icon.setToolTip("%s %s" % (APP_NAME, APP_VERSION))
+        # Контекстное меню рисуем сами (см. ui/menu.py): нативное QMenu на
+        # Windows игнорирует тему приложения целиком.
         self.icon.activated.connect(self._activated)
 
     def _icon(self):
-        return QIcon(icons.pixmap("music", 32, "#FFFFFF"))
+        """В сборке берём готовый .ico (у него есть все размеры), в разработке
+        рисуем из SVG."""
+        if os.path.isfile(APP_ICO):
+            return QIcon(APP_ICO)
+        return QIcon(icons.pixmap("app", 32, "#FFFFFF"))
 
     def show(self):
         self.icon.show()
@@ -54,7 +42,28 @@ class Tray(QObject):
     def _activated(self, reason):
         if reason in (QSystemTrayIcon.Trigger, QSystemTrayIcon.DoubleClick):
             self.show_requested.emit()
+        elif reason == QSystemTrayIcon.Context:
+            self._show_menu(QCursor.pos())
 
-    def _toggle_autostart(self, on):
-        self.settings["autostart"] = bool(on)
-        autostart.set_enabled(on)
+    def _show_menu(self, pos):
+        items = [
+            ("show", i18n.t("tray.show")),
+            None,
+            ("autostart", i18n.t("tray.autostart")),
+            None,
+            ("quit", i18n.t("tray.quit")),
+        ]
+        checks = {"autostart": bool(self.settings.get("autostart"))}
+        self._menu = Menu(items, checks)
+        self._menu.triggered.connect(self._on_menu)
+        self._menu.popup_at(QPoint(pos.x(), pos.y()))
+
+    def _on_menu(self, key):
+        if key == "show":
+            self.show_requested.emit()
+        elif key == "autostart":
+            value = not bool(self.settings.get("autostart"))
+            self.settings["autostart"] = value
+            autostart.set_enabled(value)
+        elif key == "quit":
+            self.quit_requested.emit()

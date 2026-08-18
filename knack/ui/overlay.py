@@ -5,25 +5,31 @@
 забирать фокус у активной программы, иначе каждое открытие сбивало бы набор
 текста. Из-за этого на события мыши окна полагаться нельзя (курсор часто вне
 окна), и положение курсора опрашивается таймером — тот же приём, что в Cyclop.
+
+Выезд считается своими часами (ui/anim.py), а не QPropertyAnimation: последняя
+жёстко привязана к 60 к/с, и на 180-герцовом мониторе движение выглядит рвано.
 """
 
 import ctypes
 import time
 
-from PySide6.QtCore import (QEasingCurve, QPoint, QPropertyAnimation, QRect, Qt,
-                            QTimer, Signal)
+from PySide6.QtCore import QEasingCurve, QRect, Qt, QTimer, Signal
 from PySide6.QtGui import QCursor, QGuiApplication, QPainter, QPainterPath
 from PySide6.QtWidgets import QWidget
 
-from ..core import icons
-from ..core import scale
-from ..core.constants import PANEL_H, PANEL_RADIUS, PANEL_W, RAIL_W
+from ..core import i18n, icons, scale
+from ..core.constants import PANEL_H, PANEL_RADIUS, PANEL_W
 from ..core.scale import s, sf
 from ..core.taskbar import panel_edge
-from . import theme
+from . import anim, theme
+from .anim import Tween
+from .pages.clipboard import ClipboardPage
 from .pages.media import MediaPage
-from .pages.stubs import (ClipboardPage, SettingsPage, ShelfPage, SnippetsPage,
-                          TranslatePage)
+from .pages.notes import NotesPage
+from .pages.shelf import ShelfPage
+from .pages.snippets import SnippetsPage
+from .pages.settings import SettingsPage
+from .pages.translate import TranslatePage
 from .tabbar import TabBar
 from .widgets.text import Text
 
@@ -32,8 +38,8 @@ WS_EX_TOOLWINDOW = 0x00000080
 GWL_EXSTYLE = -20
 VK_LBUTTON = 0x01
 
-SHOW_MS = 220
-HIDE_MS = 170
+SHOW_MS = 0.24
+HIDE_MS = 0.18
 TRIGGER_H = 3        # высота зоны у края экрана, px макета
 LEAVE_MARGIN = 10    # запас вокруг панели, px макета
 
@@ -51,21 +57,25 @@ def _mouse_down():
 class Overlay(QWidget):
     opened = Signal()
     closed = Signal()
+    setting_changed = Signal(str)     # что поменяли в настройках
+    hotkey_capture = Signal(bool)     # идёт захват сочетания
 
-    def __init__(self, settings, media_service, parent=None):
+    def __init__(self, settings, services, parent=None):
         super().__init__(parent)
         self.settings = settings
+        self.services = services
         self._open = False
         self._out_since = None
         self._edge = panel_edge()
         self._screen = None
+        self._open_screen = None      # экран, на котором панель открыли
         self._laid_out = False
+        self._slide_x = 0
 
         self.setWindowFlags(
             Qt.Tool
             | Qt.FramelessWindowHint
             | Qt.WindowStaysOnTopHint
-            | Qt.WindowDoesNotAcceptFocus
             | Qt.NoDropShadowWindowHint
         )
         self.setAttribute(Qt.WA_TranslucentBackground, True)
@@ -76,16 +86,22 @@ class Overlay(QWidget):
         self.label = Text(self, role="text_muted")
 
         self.pages = {}
-        for page in (MediaPage(media_service, self), ShelfPage(self),
-                     ClipboardPage(self), SnippetsPage(self),
-                     TranslatePage(self), SettingsPage(self)):
+        for page in (MediaPage(services.media, self),
+                     ShelfPage(services.shelf, services.clipboard, self),
+                     ClipboardPage(services.clipboard, self),
+                     SnippetsPage(services.snippets, services.clipboard, self),
+                     NotesPage(services.notes, self),
+                     TranslatePage(services.translator, settings, self),
+                     SettingsPage(settings, self)):
             self.pages[page.key] = page
             page.hide()
 
-        self._current = None
+        settings_page = self.pages["settings"]
+        settings_page.changed.connect(self.setting_changed.emit)
+        settings_page.capturing.connect(self.hotkey_capture.emit)
 
-        self._anim = QPropertyAnimation(self, b"pos", self)
-        self._anim.finished.connect(self._on_anim_done)
+        self._current = None
+        self._slide = Tween(self._on_slide, on_done=self._on_slide_done)
 
         self._timer = QTimer(self)
         self._timer.timeout.connect(self._tick)
@@ -105,11 +121,12 @@ class Overlay(QWidget):
             old.hide()
         self._current = key
         self.rail.set_current(key)
-        self.label.set_text(page.title)
+        self.label.set_text(i18n.t("tab." + key))
         page.show()
         page.raise_()
-        self.rail.raise_()
+        self.rail.raise_all()
         self.label.raise_()
+        self.set_focusable(page.wants_keyboard)
         if self._open:
             page.on_show()
         if save:
@@ -118,6 +135,14 @@ class Overlay(QWidget):
     def current_page(self):
         return self.pages.get(self._current)
 
+    def retranslate(self):
+        """Язык сменили — обновить подписи."""
+        page = self.current_page()
+        if page:
+            self.label.set_text(i18n.t("tab." + page.key))
+        for p in self.pages.values():
+            p.retranslate()
+
     # --- масштаб и раскладка --------------------------------------------- #
 
     def _target_screen(self):
@@ -125,20 +150,31 @@ class Overlay(QWidget):
             return QGuiApplication.primaryScreen()
         return QGuiApplication.screenAt(QCursor.pos()) or QGuiApplication.primaryScreen()
 
-    def apply_scale(self, force=False):
-        """Пересчитывает масштаб под целевой экран и, если он изменился,
-        перекладывает всё. Иконки кешируются по размеру — кеш сбрасываем."""
-        screen = self._target_screen()
-        changed = scale.set_from_screen(screen, self.settings.get("scale_override", 0.0))
+    def apply_scale(self, screen=None, force=False):
+        """Пересчитывает масштаб под экран и, если он изменился, перекладывает
+        всё. Иконки кешируются по размеру — кеш сбрасываем."""
+        screen = screen or self._target_screen()
+        changed = scale.set_from_screen(screen,
+                                        self.settings.get("scale_override", 0.0),
+                                        self.settings.get("ui_scale", 1.0))
         self._screen = screen
+        anim.set_fps(self.settings.get("animation_fps", 0), screen)
         if changed or force or not self._laid_out:
             icons.clear_cache()
             self.relayout()
         return screen
 
+    def reapply(self):
+        """Перечитать масштаб и отступы после правки настроек."""
+        screen = self._open_screen or self._target_screen()
+        self.apply_scale(screen, force=True)
+        if self._open:
+            _closed, open_y = self._positions(screen)
+            self._slide.set(float(open_y))
+        self._sync_timer()
+
     def relayout(self):
         self.setFixedSize(s(PANEL_W), s(PANEL_H))
-        self.rail.setGeometry(0, 0, s(RAIL_W), s(PANEL_H))
         self.rail.relayout()
 
         self.label.set_font_px(s(9), "Bold")
@@ -148,22 +184,20 @@ class Overlay(QWidget):
             page.setGeometry(0, 0, s(PANEL_W), s(PANEL_H))
             page.relayout()
 
-        self.rail.raise_()
+        self.rail.raise_all()
         self.label.raise_()
         self._laid_out = True
 
     # --- позиция на экране ----------------------------------------------- #
 
     def _positions(self, screen):
-        """(закрытая, открытая) позиции окна для текущего края экрана."""
+        """(закрытый, открытый) Y окна для текущего края экрана."""
         geo = screen.geometry()
-        x = geo.x() + (geo.width() - self.width()) // 2
+        self._slide_x = geo.x() + (geo.width() - self.width()) // 2
         gap = s(self.settings.get("edge_gap", 0))
         if self._edge == "bottom":
-            return (QPoint(x, geo.bottom() + 1),
-                    QPoint(x, geo.bottom() + 1 - self.height() - gap))
-        return (QPoint(x, geo.y() - self.height()),
-                QPoint(x, geo.y() + gap))
+            return geo.bottom() + 1, geo.bottom() + 1 - self.height() - gap
+        return geo.y() - self.height(), geo.y() + gap
 
     def _trigger_rect(self, screen):
         geo = screen.geometry()
@@ -179,31 +213,32 @@ class Overlay(QWidget):
         return self._open
 
     def open_panel(self):
-        screen = self.apply_scale()
+        # Экран выбираем ОДИН раз, на открытии: если после этого мышь уедет на
+        # другой монитор, панель должна уехать обратно туда, где вылезла, а не
+        # перепрыгнуть следом.
+        screen = self.apply_scale(self._target_screen())
+        self._open_screen = screen
         self._edge = panel_edge()
-        closed_pos, open_pos = self._positions(screen)
+        closed_y, open_y = self._positions(screen)
 
         was_open = self._open
         self._open = True
         self._out_since = None
 
         if not self.isVisible():
-            self.move(closed_pos)
+            self.move(self._slide_x, closed_y)
+            self._slide.set(float(closed_y))
             self.show()
             self._apply_ex_style()
         self.raise_()
 
         page = self.current_page()
-        if page and not was_open:
-            page.on_show()
+        if page:
+            self.set_focusable(page.wants_keyboard)
+            if not was_open:
+                page.on_show()
 
-        self._anim.stop()
-        self._anim.setDuration(SHOW_MS)
-        self._anim.setEasingCurve(QEasingCurve.OutCubic)
-        self._anim.setStartValue(self.pos())
-        self._anim.setEndValue(open_pos)
-        self._anim.start()
-
+        self._slide.target(float(open_y), SHOW_MS, QEasingCurve.OutCubic)
         self._sync_timer()
         if not was_open:
             self.opened.emit()
@@ -213,20 +248,14 @@ class Overlay(QWidget):
             return
         self._open = False
         self._out_since = None
-        screen = self._screen or self._target_screen()
-        closed_pos, _ = self._positions(screen)
+        screen = self._open_screen or self._screen or self._target_screen()
+        closed_y, _ = self._positions(screen)
 
         page = self.current_page()
         if page:
             page.on_hide()
 
-        self._anim.stop()
-        self._anim.setDuration(HIDE_MS)
-        self._anim.setEasingCurve(QEasingCurve.InCubic)
-        self._anim.setStartValue(self.pos())
-        self._anim.setEndValue(closed_pos)
-        self._anim.start()
-
+        self._slide.target(float(closed_y), HIDE_MS, QEasingCurve.InCubic)
         self._sync_timer()
         self.closed.emit()
 
@@ -236,9 +265,13 @@ class Overlay(QWidget):
         else:
             self.open_panel()
 
-    def _on_anim_done(self):
+    def _on_slide(self, y):
+        self.move(self._slide_x, int(round(y)))
+
+    def _on_slide_done(self):
         if not self._open:
             self.hide()
+            self._open_screen = None
 
     # --- слежение за курсором --------------------------------------------- #
 
@@ -247,10 +280,11 @@ class Overlay(QWidget):
 
     def _sync_timer(self):
         need = self._open or self._hover_enabled()
-        if need and not self._timer.isActive():
-            self._timer.start(16 if self._open else 32)
-        elif need:
-            self._timer.setInterval(16 if self._open else 32)
+        interval = 8 if self._open else 24
+        if need:
+            self._timer.setInterval(interval)
+            if not self._timer.isActive():
+                self._timer.start()
         elif self._timer.isActive():
             self._timer.stop()
 
@@ -271,8 +305,8 @@ class Overlay(QWidget):
         if mode == "manual":
             return
         m = s(LEAVE_MARGIN)
-        area = QRect(self.pos(), self.size()).adjusted(-m, -m, m, m)
-        inside = area.contains(pos)
+        area = QRect(self._slide_x, self.y(), self.width(), self.height())
+        inside = area.adjusted(-m, -m, m, m).contains(pos)
 
         if mode == "click_outside":
             if not inside and _mouse_down():
@@ -282,7 +316,11 @@ class Overlay(QWidget):
         # mode == "leave": уходим не сразу, чтобы панель не схлопывалась от
         # случайного выхода курсора на пиксель. Пока кнопка мыши нажата (тянут
         # ползунок перемотки), не закрываемся вовсе.
-        if inside or _mouse_down():
+        # Пока в панели печатают, уводить её нельзя: мышь в это время может
+        # лежать где угодно, а текст пропадёт вместе с окном.
+        page = self.current_page()
+        if inside or _mouse_down() or (page and page.wants_keyboard
+                                       and self.isActiveWindow()):
             self._out_since = None
             return
         now = time.monotonic()
@@ -310,15 +348,37 @@ class Overlay(QWidget):
             pass
 
     def set_focusable(self, on):
-        """Вкладке переводчика нужен ввод с клавиатуры — там фокус разрешаем."""
+        """Вкладкам с полями ввода фокус разрешаем, остальным — нет."""
+        if not self.isVisible():
+            return
         self._apply_ex_style(focusable=bool(on))
+        if on:
+            self.activateWindow()
 
     # --- отрисовка -------------------------------------------------------- #
+
+    def _panel_path(self):
+        """
+        Скругления только у свободных углов.
+
+        Панель прижата к краю экрана, и скруглять углы, которые в этот край
+        упираются, незачем: получается щель с обоями между панелью и границей.
+        Если задан отступ от края, панель ни во что не упирается — скругляем всё.
+        """
+        w, h = self.width(), self.height()
+        r = sf(PANEL_RADIUS)
+        path = QPainterPath()
+        path.addRoundedRect(0, 0, w, h, r, r)
+        if self.settings.get("edge_gap", 0):
+            return path
+        flat = QPainterPath()
+        if self._edge == "top":
+            flat.addRect(0, 0, w, r)
+        else:
+            flat.addRect(0, h - r, w, r)
+        return path.united(flat)
 
     def paintEvent(self, _event):
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing, True)
-        path = QPainterPath()
-        r = sf(PANEL_RADIUS)
-        path.addRoundedRect(0, 0, self.width(), self.height(), r, r)
-        p.fillPath(path, theme.color("bg"))
+        p.fillPath(self._panel_path(), theme.color("bg"))

@@ -18,6 +18,8 @@ def defaults():
         "monitor":           "cursor",     # cursor | primary
         "edge_gap":          0,            # отступ панели от края экрана, px макета
         "scale_override":    0.0,          # 0 = считать от ширины экрана
+        "ui_scale":          1.0,          # ползунок размера панели (множитель)
+        "animation_fps":     0,            # 0 = частота монитора; иначе 60/120/144/…
 
         "autostart":         True,
         "last_tab":          "media",
@@ -27,6 +29,10 @@ def defaults():
         # Переводчик: argos (офлайн) | deepl (ключ). Переключатель — в настройках.
         "translate_backend": "argos",
         "deepl_key":         "",
+        "translate_from":    "en",
+        "translate_to":      "ru",
+        # Argos ставит языковые пары отдельной загрузкой; без них перевода нет.
+        "translate_auto_download": True,
     }
 
 
@@ -35,6 +41,7 @@ _ENUMS = {
     "hide_mode":         ("leave", "click_outside", "manual"),
     "monitor":           ("cursor", "primary"),
     "translate_backend": ("argos", "deepl"),
+    "language":          ("ru", "en"),
 }
 
 
@@ -75,6 +82,9 @@ def validate(data):
     data["edge_gap"]        = _num_in(data.get("edge_gap"), 0, 200, 0)
     data["scale_override"]  = _num_in(data.get("scale_override"), 0.0, 3.0, 0.0,
                                       integer=False)
+    data["ui_scale"]        = _num_in(data.get("ui_scale"), 0.7, 1.6, 1.0,
+                                      integer=False)
+    data["animation_fps"]   = _num_in(data.get("animation_fps"), 0, 360, 0)
 
     if not str(data.get("hotkey") or "").strip():
         data["hotkey"] = d["hotkey"]

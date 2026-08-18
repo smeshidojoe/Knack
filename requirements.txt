@@ -13,6 +13,8 @@ pillow==12.1.0
 winrt-Windows.Media.Control==3.2.1
 winrt-Windows.Storage.Streams==3.2.1
 winrt-Windows.Foundation==3.2.1
+# Нужен для GetSessions: без него виден только один текущий источник звука.
+winrt-Windows.Foundation.Collections==3.2.1
 
 
 # --- Позже (вкладка «Переводчик») ------------------------------------------ #

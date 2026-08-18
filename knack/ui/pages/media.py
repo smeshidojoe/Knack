@@ -2,15 +2,22 @@
 Вкладка «Музыка».
 
 Координаты — из макета (2560x1440), пересчёт в relayout() через scale.s().
-Раскладка абсолютная: панель фиксированного размера, и раскладывать девять
+Раскладка абсолютная: панель фиксированного размера, и раскладывать десяток
 элементов вложенными layout'ами тут дороже, чем расставить их по числам из
 Figma — зато каждое число в коде совпадает с числом в макете.
+
+Позицию трека двигают общие часы, а не приход данных от службы: SMTC у части
+источников обновляет таймлайн раз в несколько минут, и полоса замирала до
+следующего нажатия паузы.
 """
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtWidgets import QWidget
 
-from ...core.constants import CONTENT_R, CONTENT_X
+from ...core import i18n
+from ...core.constants import BODY_R, CONTENT_R, CONTENT_X, MEDIA_BTN_BOX
 from ...core.scale import s, sf
+from ..anim import Ticker
 from ..widgets.artwork import Artwork
 from ..widgets.buttons import IconButton
 from ..widgets.equalizer import Equalizer
@@ -23,8 +30,12 @@ ART_X, ART_Y, ART_SIDE, ART_RADIUS = 54, 51, 109, 12
 TITLE_Y,    TITLE_H    = 50, 17
 SUBTITLE_Y, SUBTITLE_H = 69, 12
 
-BTN_CY, BTN_BOX, BTN_GAP = 115, 37, 51
+BTN_CY, BTN_HOVER, BTN_GAP = 115, 37, 51
 ICON_SKIP, ICON_PLAY = 18, 15
+
+# Треугольник Play легче своей правой части, и в общем боксе он выглядит
+# сдвинутым влево относительно симметричной паузы. Смещаем оптически.
+PLAY_DX = 1.0
 
 ROW_Y, ROW_H = 149, 11
 TIME_MIN_W, TIME_GAP = 21, 11
@@ -44,15 +55,39 @@ def format_time(seconds):
     return "%d:%02d" % (m, sec)
 
 
+class _ClickArea(QWidget):
+    """Прозрачная кликабельная зона поверх подписи источника."""
+
+    clicked = Signal()
+    hovered = Signal(bool)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setAttribute(Qt.WA_Hover, True)
+
+    def enterEvent(self, event):
+        self.hovered.emit(True)
+        super().enterEvent(event)
+
+    def leaveEvent(self, event):
+        self.hovered.emit(False)
+        super().leaveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        if event.button() == Qt.LeftButton and self.rect().contains(
+                event.position().toPoint()):
+            self.clicked.emit()
+
+
 class MediaPage(Page):
     key = "media"
-    title = "МУЗЫКА"
 
     def __init__(self, service, parent=None):
         super().__init__(parent)
         self.service = service
         self._art_key = None
-        self._has_session = False
+        self._state = None
+        self._ticker = Ticker(self._tick)
 
         self.art = Artwork(self, radius=ART_RADIUS)
         self.title_text = Text(self, role="text_primary")
@@ -60,13 +95,18 @@ class MediaPage(Page):
 
         self.source = Text(self, role="text_secondary", align=Qt.AlignRight)
         self.equalizer = Equalizer(self, role="text_secondary")
+        self.source_click = _ClickArea(self)
+        self.source_click.clicked.connect(self._switch_source)
+        self.source_click.hovered.connect(self._on_source_hover)
+        self.source_click.hide()
 
         self.prev = IconButton(self, icon_name="prev", icon_px=ICON_SKIP,
-                               hover_shape="circle", hover_size=(BTN_BOX, BTN_BOX))
+                               hover_shape="circle", hover_size=(BTN_HOVER, BTN_HOVER))
         self.play = IconButton(self, icon_name="play", icon_px=ICON_PLAY,
-                               hover_shape="circle", hover_size=(BTN_BOX, BTN_BOX))
+                               hover_shape="circle", hover_size=(BTN_HOVER, BTN_HOVER),
+                               icon_offset=(PLAY_DX, 0))
         self.next = IconButton(self, icon_name="next", icon_px=ICON_SKIP,
-                               hover_shape="circle", hover_size=(BTN_BOX, BTN_BOX))
+                               hover_shape="circle", hover_size=(BTN_HOVER, BTN_HOVER))
 
         self.time_left = Text(self, role="text_muted", align=Qt.AlignLeft)
         self.time_right = Text(self, role="text_muted", align=Qt.AlignRight)
@@ -76,6 +116,7 @@ class MediaPage(Page):
         self.play.clicked.connect(self.service.toggle)
         self.next.clicked.connect(self.service.next)
         self.bar.seek.connect(self.service.seek)
+        self.bar.scrubbing.connect(self._on_scrub)
         self.service.updated.connect(self.apply_state)
 
         self.apply_state(None)
@@ -91,14 +132,15 @@ class MediaPage(Page):
         self.time_left.set_font_px(s(9), "Medium")
         self.time_right.set_font_px(s(9), "Medium")
 
-        width = s(CONTENT_R) - s(CONTENT_X)
+        width = s(BODY_R) - s(CONTENT_X)
         self.title_text.setGeometry(s(CONTENT_X), s(TITLE_Y), width, s(TITLE_H))
         self.subtitle.setGeometry(s(CONTENT_X), s(SUBTITLE_Y), width, s(SUBTITLE_H))
 
-        box = s(BTN_BOX)
+        box = s(MEDIA_BTN_BOX)
         cx = (s(CONTENT_X) + s(CONTENT_R)) // 2
         cy = s(BTN_CY)
-        for btn, dx in ((self.prev, -s(BTN_GAP)), (self.play, 0), (self.next, s(BTN_GAP))):
+        for btn, dx in ((self.prev, -s(BTN_GAP)), (self.play, 0),
+                        (self.next, s(BTN_GAP))):
             btn.setGeometry(cx + dx - box // 2, cy - box // 2, box, box)
 
         self._layout_header()
@@ -113,7 +155,14 @@ class MediaPage(Page):
         eq_w, eq_h = self.equalizer.base_size()
         eq_w, eq_h = s(eq_w), s(eq_h)
         eq_bottom = s(HEADER_Y) + s(HEADER_H) - s(1)
-        self.equalizer.setGeometry(x - s(EQ_GAP) - eq_w, eq_bottom - eq_h, eq_w, eq_h)
+        eq_x = x - s(EQ_GAP) - eq_w
+        self.equalizer.setGeometry(eq_x, eq_bottom - eq_h, eq_w, eq_h)
+
+        pad = s(4)
+        self.source_click.setGeometry(eq_x - pad, s(HEADER_Y) - pad,
+                                      s(CONTENT_R) - eq_x + pad * 2,
+                                      s(HEADER_H) + pad * 2)
+        self.source_click.raise_()
 
     def _layout_progress(self):
         """Полоса ужимается под длину таймингов: у часовых треков они шире."""
@@ -123,7 +172,7 @@ class MediaPage(Page):
         gap = s(TIME_GAP)
 
         left = s(CONTENT_X)
-        right = s(CONTENT_R) - s(8)     # правый тайминг в макете кончается на 550
+        right = s(BODY_R)
         self.time_left.setGeometry(left, y, lw, h)
         self.time_right.setGeometry(right - rw, y, rw, h)
 
@@ -134,11 +183,11 @@ class MediaPage(Page):
     # --- данные ---------------------------------------------------------- #
 
     def apply_state(self, state):
+        self._state = state
         playing = bool(state and state.playing)
-        self._has_session = state is not None
 
         if state is None:
-            self.title_text.set_text("Ничего не играет")
+            self.title_text.set_text(i18n.t("media.idle"))
             self.subtitle.set_text("")
             self.source.set_text("")
             if self._art_key is not None:
@@ -148,16 +197,14 @@ class MediaPage(Page):
             self.time_left.set_text("")
             self.time_right.set_text("")
         else:
-            self.title_text.set_text(state.title or "Без названия")
+            self.title_text.set_text(state.title or i18n.t("media.untitled"))
             self.subtitle.set_text(state.subtitle())
             self.source.set_text(state.app_name)
             if state.art_key != self._art_key:
                 self._art_key = state.art_key
                 self.art.set_image(state.art)
             self.bar.set_values(state.elapsed(), state.duration)
-            self.time_left.set_text(format_time(self.bar.fraction() * state.duration
-                                                if self.bar.is_scrubbing()
-                                                else state.elapsed()))
+            self.time_left.set_text(format_time(self._display_position()))
             self.time_right.set_text(format_time(state.duration))
 
         self.play.set_icon("pause" if playing else "play")
@@ -168,13 +215,65 @@ class MediaPage(Page):
         self.next.setEnabled(bool(state and state.can_next))
         self.play.setEnabled(state is not None)
 
+        # Переключатель источника нужен, только когда источников больше одного.
+        many = self.service.source_count() > 1
+        self.source_click.setVisible(many)
+        self.source_click.setCursor(Qt.PointingHandCursor if many else Qt.ArrowCursor)
+        self.source_click.setToolTip(i18n.t("media.source_switch") if many else "")
+
         self._layout_header()
         self._layout_progress()
+        self._sync_ticker()
+
+    def _display_position(self):
+        state = self._state
+        if state is None:
+            return 0.0
+        if self.bar.is_scrubbing():
+            return self.bar.fraction() * state.duration
+        return state.elapsed()
+
+    def _on_source_hover(self, on):
+        self.source.set_role("text_primary" if on else "text_secondary")
+
+    def _switch_source(self):
+        self.service.next_source()
+
+    def _on_scrub(self, active):
+        self._sync_ticker()
+        if not active:
+            self._tick(0)
+
+    # --- живая позиция ---------------------------------------------------- #
+
+    def _sync_ticker(self):
+        need = (self.isVisible() and self._state is not None
+                and (self._state.playing or self.bar.is_scrubbing()))
+        if need:
+            self._ticker.start()
+        else:
+            self._ticker.stop()
+
+    def _tick(self, _dt):
+        state = self._state
+        if state is None:
+            return
+        position = self._display_position()
+        self.bar.set_values(position, state.duration)
+        text = format_time(position)
+        if text != self.time_left.text():
+            self.time_left.set_text(text)
+            self._layout_progress()
 
     # --- жизненный цикл -------------------------------------------------- #
 
+    def retranslate(self):
+        self.apply_state(self._state)
+
     def on_show(self):
         self.service.set_active(True)
+        self._sync_ticker()
 
     def on_hide(self):
         self.service.set_active(False)
+        self._ticker.stop()

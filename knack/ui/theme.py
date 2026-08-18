@@ -27,7 +27,25 @@ class Theme:
 
     track: str          # полоса прогресса, пустая часть
     track_fill: str     # заполненная часть
-    placeholder: str    # заглушка обложки
+    track_preview: str  # метка «сюда встанет ползунок» под курсором
+    placeholder: str    # заглушка обложки плеера
+    card: str           # подложка карточки на полке
+    flash: str          # вспышка «скопировано»
+
+    surface: str        # поля ввода, строки списков, поле поиска
+    surface_alt: str    # строка заметки, панель выпадающего списка
+    surface_hover: str  # строка под курсором
+
+    text_bright: str    # содержимое строк списков
+    text_button: str    # подпись служебной кнопки («New Note», «+»)
+    text_placeholder: str   # подсказка в пустом поле
+    text_faint: str     # «Очистить» и прочие второстепенные действия
+
+    scroll_track: str
+    scroll_thumb: str
+
+    menu_bg: str        # фон меню в трее
+    menu_border: str    # обводка меню
 
 
 DARK = Theme(
@@ -40,7 +58,21 @@ DARK = Theme(
     text_muted="#525252",
     track="#141414",
     track_fill="#E7E7E7",
+    track_preview="#5C5C5C",
     placeholder="#D9D9D9",
+    card="#1A181A",
+    flash="#FFFFFF",
+    surface="#151315",
+    surface_alt="#201F20",
+    surface_hover="#2A282A",
+    text_bright="#FDFBFD",
+    text_button="#898889",
+    text_placeholder="#565556",
+    text_faint="#707070",
+    scroll_track="#323232",
+    scroll_thumb="#8C8C8C",
+    menu_bg="#0A0A0A",
+    menu_border="#242424",
 )
 
 THEMES = {t.name: t for t in (DARK,)}
