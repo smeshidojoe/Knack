@@ -35,6 +35,7 @@ SHELF_INDEX    = os.path.join(APP_DIR, "shelf.json")              # порядо
 CLIPBOARD_PATH = os.path.join(APP_DIR, "clipboard_history.json")  # история текста
 SNIPPETS_PATH  = os.path.join(APP_DIR, "snippets.json")           # сниппеты
 NOTES_PATH     = os.path.join(APP_DIR, "notes.json")              # заметки
+TRANSLATE_DIR  = os.path.join(APP_DIR, "translate")               # модели перевода
 LOG_PATH       = os.path.join(APP_DIR, "knack.log")
 
 # Первый ли это запуск — снимаем до того, как что-либо создаст APP_DIR.

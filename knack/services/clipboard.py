@@ -6,8 +6,15 @@
 пропускал бы быстрые подряд идущие копирования и жёг батарею впустую.
 
 Текст уходит в историю, картинки — на полку.
+
+На одну копию система нередко присылает НЕСКОЛЬКО событий: программа-источник
+выкладывает форматы по очереди, и каждый выпуск будит слушателей заново. Из-за
+этого один скриншот ложился на полку двумя одинаковыми карточками. Поэтому
+события сначала копятся в короткой паузе, а картинка вдобавок сверяется по
+содержимому с предыдущей.
 """
 
+import hashlib
 import time
 
 from PySide6.QtCore import QObject, QTimer, Signal
@@ -16,13 +23,29 @@ from PySide6.QtGui import QGuiApplication
 from ..core import jsonfile, logbook
 from ..core.constants import CLIPBOARD_PATH
 
+# Пауза, за которую схлопываются повторные события одной копии.
+SETTLE_MS = 150
+
 # Картинка иногда доезжает в буфер позже своих метаданных (так ведёт себя
 # «Универсальный буфер» и часть программ захвата). Ждём её несколькими короткими
 # попытками, иначе скриншот молча теряется.
 IMAGE_RETRY_MS = 180
 IMAGE_RETRIES = 5
 
+# Сколько секунд считать одинаковую картинку повтором того же события.
+SAME_IMAGE_SEC = 3.0
+# Сколько секунд после нашей же записи в буфер не реагировать на события.
+OWN_COPY_SEC = 1.5
+
 MAX_TEXT = 20000     # длиннее в историю не кладём: это уже не «скопированное»
+
+
+def _image_hash(image):
+    """Отпечаток содержимого картинки; буфер отдаём хешу без копии."""
+    try:
+        return hashlib.md5(image.constBits()).hexdigest()
+    except Exception:
+        return ""
 
 
 class ClipboardService(QObject):
@@ -34,7 +57,17 @@ class ClipboardService(QObject):
         self.shelf = shelf
         self.history = [x for x in jsonfile.load(CLIPBOARD_PATH, [])
                         if isinstance(x, dict) and x.get("text")]
-        self._own_copy = ""     # что положили в буфер мы сами
+
+        self._own_at = 0.0          # когда мы сами писали в буфер
+        self._own_text = ""
+        self._last_hash = ""        # отпечаток последней принятой картинки
+        self._last_hash_at = 0.0
+
+        self._settle = QTimer(self)
+        self._settle.setSingleShot(True)
+        self._settle.setInterval(SETTLE_MS)
+        self._settle.timeout.connect(self._process)
+
         self._retries = 0
         self._retry = QTimer(self)
         self._retry.setInterval(IMAGE_RETRY_MS)
@@ -45,16 +78,23 @@ class ClipboardService(QObject):
 
     # --- запись в буфер --------------------------------------------------- #
 
+    def _mark_own(self, text=""):
+        self._own_at = time.monotonic()
+        self._own_text = text or ""
+
     def copy_text(self, text):
         """Кладёт текст в буфер, не поднимая его же обратно в историю."""
         if not text:
             return
-        self._own_copy = text
+        self._mark_own(text)
         QGuiApplication.clipboard().setText(text)
 
     def copy_mime(self, mime):
-        self._own_copy = mime.text() or "\0mime"
+        self._mark_own(mime.text() or "")
         QGuiApplication.clipboard().setMimeData(mime)
+
+    def _is_own(self):
+        return (time.monotonic() - self._own_at) < OWN_COPY_SEC
 
     # --- история текста ---------------------------------------------------- #
 
@@ -86,6 +126,13 @@ class ClipboardService(QObject):
     # --- события буфера ---------------------------------------------------- #
 
     def _on_change(self):
+        # Не читаем буфер сразу: источник может ещё выкладывать форматы, а
+        # повторные события одной копии должны схлопнуться в одно.
+        self._settle.start()
+
+    def _process(self):
+        if self._is_own():
+            return
         try:
             mime = QGuiApplication.clipboard().mimeData()
         except Exception:
@@ -100,24 +147,28 @@ class ClipboardService(QObject):
             return
 
         if mime.hasText():
-            text = mime.text()
-            if text == self._own_copy:
-                self._own_copy = ""
-                return
-            self.add_text(text)
+            self.add_text(mime.text())
 
     def _try_image(self):
-        clipboard = QGuiApplication.clipboard()
-        image = clipboard.image()
-        if image is not None and not image.isNull():
+        if self._is_own():
             self._retry.stop()
-            if self._own_copy:
-                self._own_copy = ""
-                return
-            self.shelf.add_image(image)
             return
-        self._retries -= 1
-        if self._retries > 0:
-            self._retry.start()
-        else:
-            self._retry.stop()
+        image = QGuiApplication.clipboard().image()
+        if image is None or image.isNull():
+            self._retries -= 1
+            if self._retries > 0:
+                self._retry.start()
+            else:
+                self._retry.stop()
+            return
+
+        self._retry.stop()
+        digest = _image_hash(image)
+        now = time.monotonic()
+        if (digest and digest == self._last_hash
+                and now - self._last_hash_at < SAME_IMAGE_SEC):
+            # Та же картинка сразу следом — это второе событие одной копии.
+            self._last_hash_at = now
+            return
+        self._last_hash, self._last_hash_at = digest, now
+        self.shelf.add_image(image)

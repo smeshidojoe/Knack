@@ -9,11 +9,15 @@
 занимают заметное время, а панель должна оставаться отзывчивой.
 """
 
+import importlib.util
+import logging
+import os
 import threading
 
 from PySide6.QtCore import QObject, Signal
 
 from ..core import logbook
+from ..core.constants import TRANSLATE_DIR
 
 # Языки в порядке макета. Код — двухбуквенный, он же уходит в оба бэкенда.
 LANGUAGES = (
@@ -29,9 +33,61 @@ LANGUAGES = (
 
 LANG_NAMES = dict(LANGUAGES)
 
+# Алфавит языка. Автоопределение направления работает только между кириллицей и
+# латиницей: для иероглифов «преобладающая буква» ничего не значит.
+SCRIPTS = {
+    "ru": "cyrillic", "uk": "cyrillic",
+    "en": "latin", "de": "latin", "fr": "latin", "es": "latin",
+    "ja": "japanese", "zh": "han",
+}
+
+# Сколько букв должно набраться, прежде чем менять направление, и какая доля
+# из них должна быть одного алфавита. Иначе направление скакало бы от первой же
+# случайной буквы.
+DETECT_MIN_LETTERS = 3
+DETECT_SHARE = 0.6
+
 
 def language_name(code):
     return LANG_NAMES.get(code, (code or "").upper())
+
+
+def detect_script(text):
+    """'cyrillic' | 'latin' | '' — по преобладанию букв во введённом тексте."""
+    cyrillic = latin = 0
+    for char in text or "":
+        code = ord(char)
+        if 0x0400 <= code <= 0x04FF:
+            cyrillic += 1
+        elif ("a" <= char <= "z") or ("A" <= char <= "Z"):
+            latin += 1
+    total = cyrillic + latin
+    if total < DETECT_MIN_LETTERS:
+        return ""
+    if cyrillic / total >= DETECT_SHARE:
+        return "cyrillic"
+    if latin / total >= DETECT_SHARE:
+        return "latin"
+    return ""
+
+
+def pick_direction(text, source, target):
+    """
+    Куда переводить, судя по набранному тексту.
+
+    Меняем панели местами, только если текст явно написан алфавитом ВТОРОЙ
+    панели: набрал кириллицу в поле с английским — панели меняются, и перевод
+    идёт из русского. Если оба языка одного алфавита (английский и немецкий),
+    менять нечего.
+    """
+    script = detect_script(text)
+    if not script:
+        return source, target
+    if SCRIPTS.get(source) == script:
+        return source, target
+    if SCRIPTS.get(target) != script:
+        return source, target
+    return target, source
 
 
 class Translator(QObject):
@@ -51,9 +107,22 @@ class Translator(QObject):
         return self.settings.get("translate_backend", "argos")
 
     def available(self):
+        """
+        Есть ли чем переводить — БЕЗ загрузки самого движка.
+
+        `import argostranslate` тянет ctranslate2 с моделями и в первый раз
+        занимает несколько секунд. Вкладка спрашивает про доступность на каждое
+        нажатие клавиши, поэтому здесь только проверяем, установлен ли пакет;
+        сам импорт делает рабочий поток.
+        """
         if self.backend() == "deepl":
             return bool(self.settings.get("deepl_key"))
-        return self._load_argos() is not None
+        if self._argos is None:
+            try:
+                return importlib.util.find_spec("argostranslate") is not None
+            except (ImportError, ValueError):
+                return False
+        return bool(self._argos)
 
     def pair_ready(self, source, target):
         """Установлен ли путь перевода. Для DeepL всегда да."""
@@ -102,9 +171,46 @@ class Translator(QObject):
             return
         self.done.emit(request, result)
 
+    def models_dir(self):
+        return str(self.settings.get("translate_models_dir") or "").strip() or TRANSLATE_DIR
+
+    def _prepare_env(self):
+        """
+        Куда argos кладёт модели.
+
+        Свои пути он собирает при импорте `argostranslate.settings`, читая
+        линуксовые XDG-переменные, и на Windows это оборачивается папками
+        `.local` и `.config` прямо в профиле пользователя. Раскладываем всё в
+        одном месте — по умолчанию рядом с остальными данными программы.
+        Переменные ставим ДО импорта: позже они уже ни на что не влияют.
+        """
+        base = self.models_dir()
+        data = os.path.join(base, "data")
+        try:
+            os.makedirs(data, exist_ok=True)
+        except OSError:
+            logbook.exc("translate models dir")
+            return
+        os.environ["XDG_DATA_HOME"] = data
+        os.environ["XDG_CACHE_HOME"] = os.path.join(base, "cache")
+        os.environ["XDG_CONFIG_HOME"] = os.path.join(base, "config")
+        os.environ["ARGOS_TRANSLATE_PACKAGE_DIR"] = os.path.join(
+            data, "argos-translate", "packages")
+
+    def loaded(self):
+        """Движок уже подгружен — смена папки моделей подействует со следующего
+        запуска."""
+        return bool(self._argos)
+
     def _load_argos(self):
         if self._argos is not None:
             return self._argos or None
+        self._prepare_env()
+        # stanza, которую argos тянет для разбивки на предложения, сыплет в
+        # консоль предупреждениями вида «package default expects mwt».
+        # Это её штатная болтовня, к переводу отношения не имеет.
+        for name in ("stanza", "argostranslate"):
+            logging.getLogger(name).setLevel(logging.ERROR)
         try:
             from argostranslate import translate as argos
             self._argos = argos
@@ -134,6 +240,7 @@ class Translator(QObject):
 
     def _install_pair(self, source, target):
         """Скачивает и ставит недостающие языковые пакеты. True — получилось."""
+        self._prepare_env()
         try:
             from argostranslate import package
         except ImportError:

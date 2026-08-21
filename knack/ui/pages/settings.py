@@ -10,12 +10,14 @@
 масштаб, перерегистрировать хоткей, поменять язык.
 """
 
+import os
+
 from PySide6.QtCore import QRectF, Qt, Signal
 from PySide6.QtGui import QPainter
-from PySide6.QtWidgets import QWidget
+from PySide6.QtWidgets import QFileDialog, QWidget
 
 from ...core import autostart, fonts, i18n
-from ...core.constants import BODY_R
+from ...core.constants import BODY_R, TRANSLATE_DIR
 from ...core.scale import s, sf
 from .. import theme
 from ..widgets.controls import (HotkeyField, Segmented, Slider, Stepper,
@@ -171,6 +173,11 @@ class SettingsPage(Page):
         self.hotkey.capturing.connect(self.capturing.emit)
         self._row("settings.hotkey", self.hotkey)
 
+        self.hover_delay = Stepper(box, 0, 2000, settings.get("hover_delay_ms", 150),
+                                   25, " ms")
+        self.hover_delay.changed.connect(lambda v: self._set("hover_delay_ms", v))
+        self._row("settings.hover_delay", self.hover_delay)
+
         self.hide_mode = Segmented(box, self._options(
             "settings.hide", ("leave", "click_outside", "manual")),
             settings.get("hide_mode"))
@@ -217,10 +224,19 @@ class SettingsPage(Page):
         self.key_row = self._row("settings.deepl_key", self.key_box,
                                  extra=self.key_button, width=250)
 
+        self.autodetect = Toggle(box, settings.get("translate_autodetect", True))
+        self.autodetect.toggled.connect(
+            lambda v: self._set("translate_autodetect", v))
+        self._row("settings.autodetect", self.autodetect)
+
         self.auto_download = Toggle(box, settings.get("translate_auto_download", True))
         self.auto_download.toggled.connect(
             lambda v: self._set("translate_auto_download", v))
         self.download_row = self._row("settings.auto_download", self.auto_download)
+
+        self.models = TextButton(box, self._models_label())
+        self.models.clicked.connect(self._pick_models_dir)
+        self.models_row = self._row("settings.models_dir", self.models)
 
         # --- система --------------------------------------------------------- #
         self._section("settings.section.system")
@@ -295,11 +311,27 @@ class SettingsPage(Page):
             return int(control.width_hint())
         return s(getattr(control, "W", 30))
 
+    def _models_label(self):
+        path = str(self.settings.get("translate_models_dir") or "").strip()
+        return os.path.basename(path.rstrip(os.sep + "/")) or os.path.basename(TRANSLATE_DIR)
+
+    def _pick_models_dir(self):
+        start = str(self.settings.get("translate_models_dir") or "") or TRANSLATE_DIR
+        folder = QFileDialog.getExistingDirectory(
+            self, i18n.t("settings.models_pick"), start)
+        if not folder:
+            return
+        self.settings["translate_models_dir"] = folder
+        self.models.set_label(self._models_label())
+        self.changed.emit("translate_models_dir")
+        self.relayout()
+
     def _sync_visibility(self):
         deepl = self.settings.get("translate_backend") == "deepl"
         for widget in (self.key_box, self.key_button, self.key_row[0]):
             widget.setVisible(deepl)
-        for widget in (self.auto_download, self.download_row[0]):
+        for widget in (self.auto_download, self.download_row[0],
+                       self.models, self.models_row[0]):
             widget.setVisible(not deepl)
         # Строка без видимых частей не должна занимать место в колонке.
         self._rows = [self._with_height(row) for row in self._rows]
@@ -312,7 +344,7 @@ class SettingsPage(Page):
         label, control, extra, height, hint = row
         if label is self.key_row[0]:
             height = ROW_H if deepl else 0
-        elif label is self.download_row[0]:
+        elif label in (self.download_row[0], self.models_row[0]):
             height = 0 if deepl else ROW_H
         return (label, control, extra, height, hint)
 

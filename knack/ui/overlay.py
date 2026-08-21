@@ -66,6 +66,7 @@ class Overlay(QWidget):
         self.services = services
         self._open = False
         self._out_since = None
+        self._in_since = None
         self._edge = panel_edge()
         self._screen = None
         self._open_screen = None      # экран, на котором панель открыли
@@ -224,6 +225,7 @@ class Overlay(QWidget):
         was_open = self._open
         self._open = True
         self._out_since = None
+        self._in_since = None
 
         if not self.isVisible():
             self.move(self._slide_x, closed_y)
@@ -248,6 +250,7 @@ class Overlay(QWidget):
             return
         self._open = False
         self._out_since = None
+        self._in_since = None
         screen = self._open_screen or self._screen or self._target_screen()
         closed_y, _ = self._positions(screen)
 
@@ -296,9 +299,26 @@ class Overlay(QWidget):
         if self._open:
             self._tick_open(pos)
         elif self._hover_enabled():
-            screen = self._target_screen()
-            if self._trigger_rect(screen).contains(pos):
-                self.open_panel()
+            self._tick_trigger(pos)
+
+    def _tick_trigger(self, pos):
+        """
+        Панель выезжает не от касания полосы, а от задержки в ней.
+
+        Полоса лежит у самого края экрана, куда курсор попадает и по пути к
+        углу, и промахом мимо кнопки: без выдержки панель выпрыгивала на каждое
+        такое движение.
+        """
+        screen = self._target_screen()
+        if not self._trigger_rect(screen).contains(pos):
+            self._in_since = None
+            return
+        delay = self.settings.get("hover_delay_ms", 150)
+        now = time.monotonic()
+        if self._in_since is None:
+            self._in_since = now
+        if (now - self._in_since) * 1000 >= delay:
+            self.open_panel()
 
     def _tick_open(self, pos):
         mode = self.settings.get("hide_mode", "leave")

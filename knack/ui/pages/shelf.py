@@ -17,7 +17,7 @@ from PySide6.QtWidgets import QWidget
 from ...core import fonts, i18n, icons
 from ...core.constants import BODY_R
 from ...core.scale import s, sf
-from ...services.shelf import KIND_IMAGE
+from ...services.shelf import KIND_IMAGE, KIND_MEDIA
 from .. import theme
 from ..widgets.flash import Flash
 from ..widgets.text import Text
@@ -162,9 +162,13 @@ class _Grid(QWidget):
                           s(THUMB_W), s(THUMB_H))
             pm = self._thumb(item, thumb.width(), thumb.height())
             if pm.isNull():
-                glyph = icons.pixmap("media", s(18), theme.color("text_secondary"))
-                p.drawPixmap(thumb.center().x() - glyph.width() // 2,
-                             thumb.center().y() - glyph.height() // 2, glyph)
+                # У медиа превью не бывает вовсе, у картинки его может ещё
+                # готовить фоновый поток — тогда карточка просто пустая.
+                if item.get("kind") == KIND_MEDIA:
+                    glyph = icons.pixmap("media", s(18),
+                                         theme.color("text_secondary"))
+                    p.drawPixmap(thumb.center().x() - glyph.width() // 2,
+                                 thumb.center().y() - glyph.height() // 2, glyph)
             else:
                 path = QPainterPath()
                 r = sf(THUMB_R)

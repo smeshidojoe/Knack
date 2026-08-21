@@ -27,3 +27,4 @@ class Services(QObject):
 
     def stop(self):
         self.media.stop()
+        self.shelf.shutdown()

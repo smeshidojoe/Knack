@@ -15,8 +15,9 @@ from PySide6.QtWidgets import QWidget
 
 from ...core import fonts, i18n
 from ...core.scale import s, sf
-from ...services.translate import LANGUAGES, language_name
+from ...services.translate import LANGUAGES, language_name, pick_direction
 from .. import theme
+from ..widgets.buttons import IconButton
 from ..widgets.field import restyle, text_edit
 from ..widgets.listview import ListView
 from .base import Page
@@ -31,6 +32,8 @@ DROP_X, DROP_Y, DROP_W, DROP_H, DROP_R = 63, 3, 83, 92, 4
 DROP_ITEM_X, DROP_ITEM_Y = 3, 2
 DROP_ITEM_W, DROP_ITEM_H, DROP_ITEM_STEP, DROP_ITEM_R = 71, 13, 14, 2
 DROP_TEXT_X, DROP_TEXT_PX = 5, 9
+
+SWAP_CX, SWAP_CY, SWAP_BOX, SWAP_HOVER, SWAP_ICON = 287.5, 105, 24, 20, 11
 
 TYPING_DELAY_MS = 500
 
@@ -148,6 +151,7 @@ class TranslatePage(Page):
         self.settings = settings
         self._request = 0
         self._side = "left"
+        self._result_text = ""        # последний удавшийся перевод, не статус
 
         self.left_pane = _Pane(self)
         self.right_pane = _Pane(self)
@@ -161,6 +165,12 @@ class TranslatePage(Page):
                                 i18n.t("translate.placeholder"))
         self.source.textChanged.connect(self._schedule)
         self.result = text_edit(self, TEXT_PX, "Medium", "", read_only=True)
+
+        self.swap = IconButton(self, icon_name="swap", icon_px=SWAP_ICON,
+                               hover_shape="circle",
+                               hover_size=(SWAP_HOVER, SWAP_HOVER),
+                               role="text_button", role_hover="text_bright")
+        self.swap.clicked.connect(self.swap_languages)
 
         self.dropdown = _Dropdown(self)
         self.dropdown.list.activated.connect(self._pick_language)
@@ -191,6 +201,10 @@ class TranslatePage(Page):
                               s(PANE_W) - s(TEXT_PAD_X) * 2,
                               s(PANE_H) - s(TEXT_TOP) - s(TEXT_PAD_B))
 
+        box = s(SWAP_BOX)
+        self.swap.setGeometry(s(SWAP_CX) - box // 2, s(SWAP_CY) - box // 2, box, box)
+        self.swap.raise_()
+
         self._place_dropdown()
         self.dropdown.raise_()
 
@@ -211,6 +225,25 @@ class TranslatePage(Page):
         self.dropdown.show()
         self.dropdown.raise_()
 
+    def swap_languages(self):
+        """Меняет панели местами вместе с уже переведённым текстом."""
+        self.left_label.code, self.right_label.code = (self.right_label.code,
+                                                       self.left_label.code)
+        self._store_languages()
+        if self._result_text:
+            self.source.blockSignals(True)
+            self.source.setPlainText(self._result_text)
+            self.source.blockSignals(False)
+        self._result_text = ""
+        self.result.setPlainText("")
+        self.dropdown.hide()
+        self.relayout()
+        self._translate()
+
+    def _store_languages(self):
+        self.settings["translate_from"] = self.left_label.code
+        self.settings["translate_to"] = self.right_label.code
+
     def _pick_language(self, index):
         if not 0 <= index < len(LANGUAGES):
             return
@@ -221,8 +254,7 @@ class TranslatePage(Page):
             # Два одинаковых языка смысла не имеют — меняем панели местами.
             other.code = label.code
         label.code = code
-        self.settings["translate_from"] = self.left_label.code
-        self.settings["translate_to"] = self.right_label.code
+        self._store_languages()
         self.dropdown.hide()
         self.relayout()
         self._translate()
@@ -236,11 +268,25 @@ class TranslatePage(Page):
     def _schedule(self):
         self._timer.start()
 
+    def _autodirect(self, text):
+        """Кириллица в поле с латиницей разворачивает направление сама."""
+        if not self.settings.get("translate_autodetect", True):
+            return
+        source, target = pick_direction(text, self.left_label.code,
+                                        self.right_label.code)
+        if source == self.left_label.code:
+            return
+        self.left_label.code, self.right_label.code = source, target
+        self._store_languages()
+        self.relayout()
+
     def _translate(self):
         text = self.source.toPlainText().strip()
         if not text:
+            self._result_text = ""
             self.result.setPlainText("")
             return
+        self._autodirect(text)
         if not self.translator.available():
             self.result.setPlainText(i18n.t("translate.offline"))
             return
@@ -250,16 +296,19 @@ class TranslatePage(Page):
 
     def _on_done(self, request, text):
         if request == self._request:
+            self._result_text = text
             self.result.setPlainText(text)
 
     def _on_status(self, request, key):
         if request == self._request:
+            self._result_text = ""
             self.result.setPlainText(i18n.t(key))
 
     def _on_failed(self, request, reason):
         if request != self._request:
             return
         key = "translate.no_pack" if "no-pack" in str(reason) else "translate.offline"
+        self._result_text = ""
         self.result.setPlainText(i18n.t(key))
 
     # --- жизненный цикл ---------------------------------------------------- #

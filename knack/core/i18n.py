@@ -101,7 +101,8 @@ STRINGS = {
     "settings.hide.click_outside": {"ru": "Клик вне", "en": "Click outside"},
     "settings.hide.manual":       {"ru": "Вручную", "en": "Manually"},
 
-    "settings.hide_delay":      {"ru": "Задержка", "en": "Delay"},
+    "settings.hover_delay":     {"ru": "Задержка наведения", "en": "Hover delay"},
+    "settings.hide_delay":      {"ru": "Задержка скрытия", "en": "Hide delay"},
     "settings.monitor":         {"ru": "Монитор", "en": "Monitor"},
     "settings.monitor.cursor":  {"ru": "С курсором", "en": "With pointer"},
     "settings.monitor.primary": {"ru": "Основной", "en": "Primary"},
@@ -117,6 +118,12 @@ STRINGS = {
                                  "en": "Paste the key and press OK"},
     "settings.auto_download":   {"ru": "Качать языковые пакеты",
                                  "en": "Download language packs"},
+    "settings.autodetect":      {"ru": "Определять язык по тексту",
+                                 "en": "Detect language from text"},
+    "settings.models_dir":      {"ru": "Папка моделей", "en": "Models folder"},
+    "settings.models_pick":     {"ru": "Выбрать папку для языковых моделей",
+                                 "en": "Choose the language models folder"},
+    "settings.restart_needed":  {"ru": "нужен перезапуск", "en": "restart needed"},
     "settings.save":            {"ru": "Ок", "en": "OK"},
     "settings.saved":           {"ru": "Сохранено", "en": "Saved"},
 

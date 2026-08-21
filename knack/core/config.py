@@ -14,6 +14,9 @@ def defaults():
         "hotkey":            "ctrl+alt+k",
         # Как прятать: leave (курсор ушёл) | click_outside | manual
         "hide_mode":         "leave",
+        # Сколько курсор должен продержаться в полосе у края, прежде чем панель
+        # поедет. Без задержки она выпрыгивала от любого касания края экрана.
+        "hover_delay_ms":    150,
         "hide_delay_ms":     220,          # задержка перед уходом, гасит дрожание
         "monitor":           "cursor",     # cursor | primary
         "edge_gap":          0,            # отступ панели от края экрана, px макета
@@ -33,6 +36,10 @@ def defaults():
         "translate_to":      "ru",
         # Argos ставит языковые пары отдельной загрузкой; без них перевода нет.
         "translate_auto_download": True,
+        # Куда качать модели. Пусто — папка translate в данных программы.
+        "translate_models_dir": "",
+        # Кириллица в поле с латиницей сама разворачивает направление перевода.
+        "translate_autodetect": True,
     }
 
 
@@ -78,6 +85,7 @@ def validate(data):
             data[key] = d[key]
 
     data["clipboard_limit"] = _num_in(data.get("clipboard_limit"), 10, 1000, 100)
+    data["hover_delay_ms"]  = _num_in(data.get("hover_delay_ms"), 0, 2000, 150)
     data["hide_delay_ms"]   = _num_in(data.get("hide_delay_ms"), 0, 3000, 220)
     data["edge_gap"]        = _num_in(data.get("edge_gap"), 0, 200, 0)
     data["scale_override"]  = _num_in(data.get("scale_override"), 0.0, 3.0, 0.0,
