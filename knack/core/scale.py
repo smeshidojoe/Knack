@@ -54,6 +54,18 @@ def factor_for_height(height):
     return max(AUTO_MIN, min(AUTO_MAX, f1 + (height - h1) * slope))
 
 
+def compute(screen, override=0.0, user=1.0):
+    """Коэффициент для экрана БЕЗ его применения — нужен предпросмотру размера."""
+    user = float(user or 1.0)
+    if override and override > 0:
+        value = override * user
+    elif screen is None:
+        return _factor
+    else:
+        value = factor_for_height(screen.geometry().height()) * user
+    return max(MIN_FACTOR, min(MAX_FACTOR, value))
+
+
 def set_from_screen(screen, override=0.0, user=1.0):
     """
     Пересчитывает масштаб под экран.

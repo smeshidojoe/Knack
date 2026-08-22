@@ -167,10 +167,19 @@ class MediaService(QObject):
         self._thread.start()
 
     def stop(self):
+        """
+        Останавливает опрос и дожидается потока.
+
+        Без ожидания цикл успевал отправить сигнал уже после удаления объекта —
+        Qt отвечал на это «Signal source has been deleted».
+        """
         self._stop.set()
         loop = self._loop
         if loop is not None:
             loop.call_soon_threadsafe(self._wake_up)
+        thread = self._thread
+        if thread is not None and thread.is_alive():
+            thread.join(timeout=1.0)
 
     def set_active(self, active):
         """Открыта ли вкладка «Музыка»: от этого зависит, идёт ли опрос."""
@@ -360,7 +369,8 @@ class MediaService(QObject):
         sources = [(app_id, app_name(app_id)) for app_id in by_id]
         if sources != self._sources:
             self._sources = sources
-            self.sources_changed.emit(list(sources))
+            if not self._stop.is_set():
+                self.sources_changed.emit(list(sources))
 
         if not by_id:
             self._locked = ""
@@ -397,7 +407,12 @@ class MediaService(QObject):
     # --- сбор состояния ----------------------------------------------------- #
 
     async def _push(self):
-        self.updated.emit(await self._collect())
+        if self._stop.is_set():
+            return
+        state = await self._collect()
+        if self._stop.is_set():
+            return
+        self.updated.emit(state)
 
     async def _collect(self):
         session = self._pick_session()

@@ -319,6 +319,7 @@ class TranslatePage(Page):
         self.right_label.update()
 
     def on_show(self):
+        self.translator.warm_up()
         self.source.setFocus()
 
     def on_hide(self):

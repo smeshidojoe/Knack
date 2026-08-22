@@ -6,13 +6,16 @@
 так его можно вставить в чат обычным Ctrl+V.
 
 Клик по карточке кладёт содержимое в буфер, крестик в углу убирает карточку.
+Карточку можно утащить мышью наружу — в папку, в чат, в любое окно, принимающее
+файлы: наружу уходит тот же набор данных, что и в буфер.
 """
 
 import os
 
-from PySide6.QtCore import QRect, QRectF, Qt
-from PySide6.QtGui import QFontMetrics, QPainter, QPainterPath, QPen, QPixmap
-from PySide6.QtWidgets import QWidget
+from PySide6.QtCore import QPoint, QRect, QRectF, Qt
+from PySide6.QtGui import (QDrag, QFontMetrics, QPainter, QPainterPath, QPen,
+                           QPixmap)
+from PySide6.QtWidgets import QApplication, QWidget
 
 from ...core import fonts, i18n, icons
 from ...core.constants import BODY_R
@@ -32,6 +35,7 @@ GRID_BOTTOM = 180
 THUMB_X, THUMB_Y, THUMB_W, THUMB_H, THUMB_R = 5, 6, 62, 34, 5
 CAP_X, CAP_Y, CAP_W, CAP_H, CAP_PX = 7, 45, 58.6, 20, 7
 CLOSE_BOX, CLOSE_PAD = 12, 3
+DRAG_PREVIEW = 56          # размер картинки под курсором при переносе
 
 
 class _Grid(QWidget):
@@ -44,6 +48,10 @@ class _Grid(QWidget):
         self._hover = -1
         self._hover_close = False
         self._thumbs = {}
+        self._press_at = None       # где нажали, чтобы отличить клик от переноса
+        self._press_index = -1
+        self._dragging = False
+        self._after_drag = False    # перенос закончился, клик засчитывать нельзя
         self._flash = Flash(self.update)
         self._font = fonts.font(s(CAP_PX), "Medium")
 
@@ -89,8 +97,22 @@ class _Grid(QWidget):
         self._offset = max(0, min(self._offset, self.max_offset()))
         self.update()
 
+    def mousePressEvent(self, event):
+        if event.button() != Qt.LeftButton:
+            return
+        point = event.position().toPoint()
+        self._press_at = point
+        self._press_index = self._index_at(point)
+        self._after_drag = False
+
     def mouseMoveEvent(self, event):
         point = event.position().toPoint()
+        if (self._press_at is not None and self._press_index >= 0
+                and not self._dragging
+                and (point - self._press_at).manhattanLength()
+                >= QApplication.startDragDistance()):
+            self._start_drag(self._press_index)
+            return
         index = self._index_at(point)
         close = bool(index >= 0
                      and self.close_rect(self.card_rect(index)).contains(point))
@@ -107,6 +129,13 @@ class _Grid(QWidget):
     def mouseReleaseEvent(self, event):
         if event.button() != Qt.LeftButton:
             return
+        # Qt обычно не доводит отпускание до виджета-источника после переноса,
+        # но если довело — клик засчитывать нельзя, карточку уже утащили.
+        was_drag = self._dragging or self._after_drag
+        self._dragging = self._after_drag = False
+        self._press_at, self._press_index = None, -1
+        if was_drag:
+            return
         point = event.position().toPoint()
         index = self._index_at(point)
         if index < 0:
@@ -116,6 +145,34 @@ class _Grid(QWidget):
             self._thumbs.clear()
         else:
             self.page.copy_item(index)
+
+    def _start_drag(self, index):
+        """Перенос карточки наружу: в папку, в чат, в любое окно с файлами."""
+        if not 0 <= index < len(self.store.items):
+            return
+        item = self.store.items[index]
+        self._dragging = True
+        self._hover, self._hover_close = -1, False
+        self.update()
+
+        drag = QDrag(self)
+        drag.setMimeData(self.store.mime_for(item))
+        preview = self._drag_pixmap(item)
+        if not preview.isNull():
+            drag.setPixmap(preview)
+            drag.setHotSpot(QPoint(preview.width() // 2, preview.height() // 2))
+        drag.exec(Qt.CopyAction)
+        self._dragging = False
+        self._after_drag = True
+        self._press_at, self._press_index = None, -1
+
+    def _drag_pixmap(self, item):
+        """Картинка под курсором во время переноса."""
+        side = s(DRAG_PREVIEW)
+        source = self._thumb(item, side, side)
+        if not source.isNull():
+            return source
+        return icons.pixmap("media", side, theme.color("text_secondary"))
 
     def refresh(self):
         self._offset = max(0, min(self._offset, self.max_offset()))

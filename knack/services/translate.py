@@ -12,6 +12,7 @@
 import importlib.util
 import logging
 import os
+import shutil
 import threading
 
 from PySide6.QtCore import QObject, Signal
@@ -138,6 +139,19 @@ class Translator(QObject):
         except Exception:
             return False
 
+    def warm_up(self):
+        """
+        Подгружает движок заранее, в фоне.
+
+        Первый `import argostranslate` занимает около шести секунд, и вместе с
+        загрузкой модели первый перевод ждал одиннадцать. Начинаем, как только
+        открыли вкладку: пока человек набирает текст, движок уже готов.
+        """
+        if self.backend() != "argos" or self._argos is not None:
+            return
+        threading.Thread(target=self._load_argos, name="knack-argos-warmup",
+                         daemon=True).start()
+
     def translate(self, text, source, target):
         """Ставит перевод в очередь. Возвращает номер запроса.
 
@@ -196,6 +210,43 @@ class Translator(QObject):
         os.environ["XDG_CONFIG_HOME"] = os.path.join(base, "config")
         os.environ["ARGOS_TRANSLATE_PACKAGE_DIR"] = os.path.join(
             data, "argos-translate", "packages")
+        # Разбиение на предложения — только minisbd. По умолчанию argos берёт
+        # stanza, а она тянет torch: полтора гигабайта и отдельная загрузка
+        # модели ради того, чтобы поставить точки в нужных местах.
+        os.environ.setdefault("ARGOS_CHUNK_TYPE", "MINISBD")
+        self._migrate_legacy(os.path.join(data, "argos-translate", "packages"))
+
+    @staticmethod
+    def _migrate_legacy(packages_dir):
+        """
+        Разовый перенос моделей из папки, куда argos клал их по умолчанию.
+
+        До появления настройки пути модели уходили в `~/.local/share/argos-translate`
+        — линуксовая раскладка прямо в профиле пользователя. Языковая пара весит
+        около двухсот мегабайт, качать её заново незачем, а держать две копии на
+        системном диске тем более.
+        """
+        legacy = os.path.join(os.path.expanduser("~"), ".local", "share",
+                              "argos-translate", "packages")
+        if not os.path.isdir(legacy) or os.path.abspath(legacy) == os.path.abspath(packages_dir):
+            return
+        try:
+            if os.path.isdir(packages_dir) and os.listdir(packages_dir):
+                return          # у нас уже что-то стоит, не трогаем
+            moved = 0
+            os.makedirs(packages_dir, exist_ok=True)
+            for name in os.listdir(legacy):
+                source = os.path.join(legacy, name)
+                target = os.path.join(packages_dir, name)
+                if os.path.exists(target):
+                    continue
+                shutil.move(source, target)
+                moved += 1
+            if moved:
+                logbook.log("перевод: перенёс %d языковых пакетов из %s"
+                            % (moved, legacy))
+        except OSError:
+            logbook.exc("translate migrate")
 
     def loaded(self):
         """Движок уже подгружен — смена папки моделей подействует со следующего

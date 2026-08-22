@@ -8,11 +8,12 @@
 Все контролы работают в координатах макета: размеры приходят через scale.s().
 """
 
-from PySide6.QtCore import QEasingCurve, QRectF, Qt, Signal
-from PySide6.QtGui import QFontMetrics, QPainter
+from PySide6.QtCore import QEasingCurve, QPoint, QRectF, Qt, QTimer, Signal
+from PySide6.QtGui import QCursor, QFontMetrics, QPainter
 from PySide6.QtWidgets import QWidget
 
 from ...core import fonts
+from ...core.mouse import left_down
 from ...core.scale import s, sf
 from .. import theme
 from ..anim import Tween
@@ -192,8 +193,11 @@ class Slider(_Base):
     """Ползунок величины: размер панели."""
 
     changed = Signal(float)
+    released = Signal()
 
     H, BAR_H, KNOB = 16, 4, 6
+
+    DRAG_MS = 16
 
     def __init__(self, parent=None, minimum=0.7, maximum=1.6, value=1.0, step=0.05):
         super().__init__(parent)
@@ -202,6 +206,14 @@ class Slider(_Base):
         self.step = step
         self.value = value
         self._drag = False
+        self._track_x = 0        # левый край ползунка на экране в момент нажатия
+        self._track_w = 1        # и его ширина тогда же
+        # Пока тянут, панель меняет размер, Windows забирает захват мыши, и
+        # события перемещения перестают доходить — ползунок замирал под
+        # курсором. Поэтому во время перетаскивания читаем курсор сами.
+        self._drag_timer = QTimer(self)
+        self._drag_timer.setInterval(self.DRAG_MS)
+        self._drag_timer.timeout.connect(self._drag_tick)
 
     def set_value(self, value):
         value = max(self.minimum, min(self.maximum, float(value)))
@@ -213,28 +225,54 @@ class Slider(_Base):
         span = self.maximum - self.minimum
         return (self.value - self.minimum) / span if span else 0.0
 
-    def _value_at(self, x):
+    def _value_at(self, x, width=None):
         span = self.maximum - self.minimum
-        frac = max(0.0, min(1.0, x / max(1, self.width())))
+        frac = max(0.0, min(1.0, x / max(1, width or self.width())))
         raw = self.minimum + frac * span
-        return round(raw / self.step) * self.step
+        # Округляем до сотых: без этого шаг 0.05 даёт значения вида
+        # 0.7500000000000001, и «то же самое» значение считается новым.
+        return round(round(raw / self.step) * self.step, 2)
 
     def mousePressEvent(self, event):
         if event.button() != Qt.LeftButton:
             return
         self._drag = True
-        self.set_value(self._value_at(event.position().x()))
-        self.changed.emit(self.value)
+        # Замораживаем систему отсчёта: панель во время перетаскивания меняет
+        # размер, ползунок уезжает под неподвижным курсором, и без этого
+        # значение считалось бы от уже другой геометрии — получалась петля,
+        # которая угоняла ползунок в упор.
+        self._track_x = self.mapToGlobal(QPoint(0, 0)).x()
+        self._track_w = max(1, self.width())
+        self._drag_timer.start()
+        self._apply(self._value_at(event.position().x(), self._track_w))
 
     def mouseMoveEvent(self, event):
         if self._drag:
-            before = self.value
-            self.set_value(self._value_at(event.position().x()))
-            if abs(before - self.value) > 1e-6:
-                self.changed.emit(self.value)
+            self._apply(self._value_at(QCursor.pos().x() - self._track_x,
+                                       self._track_w))
 
     def mouseReleaseEvent(self, event):
+        self._end_drag()
+
+    def _drag_tick(self):
+        if not left_down():
+            self._end_drag()
+            return
+        self._apply(self._value_at(QCursor.pos().x() - self._track_x,
+                                   self._track_w))
+
+    def _apply(self, value):
+        before = self.value
+        self.set_value(value)
+        if abs(before - self.value) > 1e-6:
+            self.changed.emit(self.value)
+
+    def _end_drag(self):
+        if not self._drag:
+            return
         self._drag = False
+        self._drag_timer.stop()
+        self.released.emit()
 
     def paintEvent(self, _event):
         p = QPainter(self)

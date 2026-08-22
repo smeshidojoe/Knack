@@ -13,11 +13,11 @@
 import os
 
 from PySide6.QtCore import QRectF, Qt, Signal
-from PySide6.QtGui import QPainter
+from PySide6.QtGui import QFontMetrics, QPainter
 from PySide6.QtWidgets import QFileDialog, QWidget
 
 from ...core import autostart, fonts, i18n
-from ...core.constants import BODY_R, TRANSLATE_DIR
+from ...core.constants import APP_VERSION, BODY_R, TRANSLATE_DIR
 from ...core.scale import s, sf
 from .. import theme
 from ..widgets.controls import (HotkeyField, Segmented, Slider, Stepper,
@@ -89,7 +89,8 @@ class _Label(QWidget):
 
     def __init__(self, parent, key, section=False):
         super().__init__(parent)
-        self.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+        # Мышь подписи нужна ради всплывающей подсказки. Колесо она не
+        # обрабатывает, поэтому прокрутка колонки уходит выше по цепочке.
         self.key = key
         self.section = section
         self.suffix = ""
@@ -104,6 +105,9 @@ class _Label(QWidget):
 
     def text(self):
         return i18n.t(self.key) + self.suffix
+
+    def text_width(self):
+        return QFontMetrics(self._font).horizontalAdvance(self.text())
 
     def paintEvent(self, _event):
         p = QPainter(self)
@@ -151,6 +155,7 @@ class SettingsPage(Page):
 
         self.scale = Slider(box, 0.7, 1.6, settings.get("ui_scale", 1.0), 0.05)
         self.scale.changed.connect(self._on_scale)
+        self.scale.released.connect(self._apply_scale)
         self.scale_value = _Label(box, "", section=False)
         self._row("settings.scale", self.scale, extra=self.scale_value, width=120)
 
@@ -198,6 +203,15 @@ class SettingsPage(Page):
         self.edge_gap.changed.connect(self._on_edge_gap)
         self._row("settings.edge_gap", self.edge_gap)
 
+        # --- полка ----------------------------------------------------------- #
+        self._section("settings.section.shelf")
+
+        self.video_thumbs = Toggle(box, settings.get("shelf_video_thumbs", True))
+        self.video_thumbs.toggled.connect(
+            lambda v: self._set("shelf_video_thumbs", v))
+        self._row("settings.video_thumbs", self.video_thumbs,
+                  hint="settings.video_thumbs.hint")
+
         # --- буфер ---------------------------------------------------------- #
         self._section("settings.section.clipboard")
 
@@ -235,8 +249,31 @@ class SettingsPage(Page):
         self.download_row = self._row("settings.auto_download", self.auto_download)
 
         self.models = TextButton(box, self._models_label())
+        self.models.setToolTip(self._models_tooltip())
         self.models.clicked.connect(self._pick_models_dir)
         self.models_row = self._row("settings.models_dir", self.models)
+
+        # --- раскладка -------------------------------------------------------- #
+        self._section("settings.section.layout")
+
+        self.layout_on = Toggle(box, settings.get("layout_switch_enabled", True))
+        self.layout_on.toggled.connect(self._on_layout_enabled)
+        self._row("settings.layout_switch", self.layout_on,
+                  hint="settings.layout_switch.hint")
+
+        self.layout_hotkey = HotkeyField(box, settings.get("layout_hotkey", ""))
+        self.layout_hotkey.changed.connect(
+            lambda v: self._set("layout_hotkey", v))
+        self.layout_hotkey.capturing.connect(self.capturing.emit)
+        self.layout_hotkey_row = self._row("settings.layout_hotkey",
+                                           self.layout_hotkey)
+
+        self.layout_restore = Toggle(
+            box, settings.get("layout_restore_clipboard", True))
+        self.layout_restore.toggled.connect(
+            lambda v: self._set("layout_restore_clipboard", v))
+        self.layout_restore_row = self._row("settings.layout_restore",
+                                            self.layout_restore)
 
         # --- система --------------------------------------------------------- #
         self._section("settings.section.system")
@@ -244,6 +281,22 @@ class SettingsPage(Page):
         self.autostart = Toggle(box, settings.get("autostart", True))
         self.autostart.toggled.connect(self._on_autostart)
         self.autostart_row = self._row("settings.autostart", self.autostart)
+
+        # --- инструменты ------------------------------------------------------ #
+        self._section("settings.section.tools")
+
+        self._update_ready = False   # найдено обновление — кнопка ставит его
+        self._ffmpeg_busy = False    # идёт загрузка, при возврате не сбрасываем
+        self.update_button = TextButton(box, i18n.t("settings.check"))
+        self.update_button.clicked.connect(self._on_update_button)
+        self.update_row = self._row("settings.app_update", self.update_button)
+        self.update_row[0].suffix = "  " + APP_VERSION
+
+        self.ffmpeg_button = TextButton(box, self._ffmpeg_label())
+        self.ffmpeg_button.clicked.connect(
+            lambda: self.changed.emit("fetch_ffmpeg"))
+        self.ffmpeg_row = self._row("settings.ffmpeg", self.ffmpeg_button,
+                                    hint="settings.ffmpeg.hint")
 
         self._sync_visibility()
 
@@ -261,8 +314,13 @@ class SettingsPage(Page):
         self._rows.append((label, None, None, SECTION_H, 0))
         return label
 
-    def _row(self, key, control, extra=None, width=None):
+    def _row(self, key, control, extra=None, width=None, hint=""):
         label = _Label(self.view.content, key)
+        if hint:
+            tip = i18n.t(hint)
+            label.setToolTip(tip)
+            if control is not None:
+                control.setToolTip(tip)
         row = (label, control, extra, ROW_H, width)
         self._rows.append(row)
         return row
@@ -283,7 +341,11 @@ class SettingsPage(Page):
             if not label_h:
                 continue
             label.restyle()
-            label.setGeometry(s(PAD), y, inner - s(PAD) * 2, label_h)
+            # Подпись занимает ровно свой текст, а не всю строку: она ловит
+            # мышь ради подсказки и, будучи созданной позже контрола, лежит
+            # поверх него — растянутая, она перехватывала все клики.
+            label_w = min(inner - s(PAD) * 2, label.text_width() + s(4))
+            label.setGeometry(s(PAD), y, max(s(20), label_w), label_h)
             if control is not None:
                 if hasattr(control, "restyle"):
                     control.restyle()
@@ -311,9 +373,34 @@ class SettingsPage(Page):
             return int(control.width_hint())
         return s(getattr(control, "W", 30))
 
+    @staticmethod
+    def _ffmpeg_label():
+        from ...core import tools
+        return i18n.t("settings.reinstall" if tools.have_ffmpeg()
+                      else "settings.download")
+
+    def _on_update_button(self):
+        self.changed.emit("install_update" if self._update_ready else "check_update")
+
+    def set_update_status(self, text, ready=None):
+        """Показывает ход обновления прямо на кнопке."""
+        if ready is not None:
+            self._update_ready = ready
+        default = i18n.t("settings.install" if self._update_ready
+                         else "settings.check")
+        self.update_button.set_label(text or default)
+
+    def set_ffmpeg_status(self, text, busy=None):
+        if busy is not None:
+            self._ffmpeg_busy = busy
+        self.ffmpeg_button.set_label(text or self._ffmpeg_label())
+
     def _models_label(self):
-        path = str(self.settings.get("translate_models_dir") or "").strip()
-        return os.path.basename(path.rstrip(os.sep + "/")) or os.path.basename(TRANSLATE_DIR)
+        return i18n.t("settings.choose")
+
+    def _models_tooltip(self):
+        """Полный путь показываем подсказкой: в кнопку он не влезет."""
+        return str(self.settings.get("translate_models_dir") or "").strip() or TRANSLATE_DIR
 
     def _pick_models_dir(self):
         start = str(self.settings.get("translate_models_dir") or "") or TRANSLATE_DIR
@@ -323,6 +410,7 @@ class SettingsPage(Page):
             return
         self.settings["translate_models_dir"] = folder
         self.models.set_label(self._models_label())
+        self.models.setToolTip(self._models_tooltip())
         self.changed.emit("translate_models_dir")
         self.relayout()
 
@@ -333,9 +421,27 @@ class SettingsPage(Page):
         for widget in (self.auto_download, self.download_row[0],
                        self.models, self.models_row[0]):
             widget.setVisible(not deepl)
+
+        # Сочетание и возврат буфера имеют смысл, только когда смена раскладки
+        # включена.
+        layout_on = bool(self.settings.get("layout_switch_enabled", True))
+        for widget in (self.layout_hotkey, self.layout_hotkey_row[0],
+                       self.layout_restore, self.layout_restore_row[0]):
+            widget.setVisible(layout_on)
         # Строка без видимых частей не должна занимать место в колонке.
         self._rows = [self._with_height(row) for row in self._rows]
         self.relayout()
+
+    def layout_row_label(self):
+        """Подпись строки «Менять раскладку выделенного» — у неё та же подсказка."""
+        for label, control, _extra, _h, _hint in self._rows:
+            if control is self.layout_on:
+                return label
+        return self.layout_on
+
+    def _on_layout_enabled(self, value):
+        self._set("layout_switch_enabled", value)
+        self._sync_visibility()
 
     def _with_height(self, row):
         # Видимость берём из настройки, а не из isVisible(): пока панель не
@@ -346,6 +452,9 @@ class SettingsPage(Page):
             height = ROW_H if deepl else 0
         elif label in (self.download_row[0], self.models_row[0]):
             height = 0 if deepl else ROW_H
+        elif label in (self.layout_hotkey_row[0], self.layout_restore_row[0]):
+            height = ROW_H if self.settings.get("layout_switch_enabled",
+                                                True) else 0
         return (label, control, extra, height, hint)
 
     def _update_scale_label(self):
@@ -362,8 +471,14 @@ class SettingsPage(Page):
         self._set("language", code)
 
     def _on_scale(self, value):
+        """Пока тянут — только призрак будущего размера и цифра рядом."""
+        self.settings["ui_scale"] = round(value, 2)
         self._update_scale_label()
-        self._set("ui_scale", round(value, 2))
+        self.changed.emit("ui_scale_preview")
+
+    def _apply_scale(self):
+        """Отпустили — вот теперь перестраиваем панель и сохраняем."""
+        self.changed.emit("ui_scale")
 
     def _on_fps(self, value):
         self._set("animation_fps", int(value))
@@ -403,10 +518,20 @@ class SettingsPage(Page):
         self.fps.set_options(self._fps_options())
         self.key_field.setPlaceholderText(i18n.t("settings.deepl_hint"))
         self.key_button.set_label(i18n.t("settings.save"))
+        self.models.set_label(self._models_label())
+        self.models.setToolTip(self._models_tooltip())
+        self.update_button.set_label(i18n.t("settings.check"))
+        self.ffmpeg_button.set_label(self._ffmpeg_label())
+        self.layout_on.setToolTip(i18n.t("settings.layout_switch.hint"))
+        self.layout_row_label().setToolTip(i18n.t("settings.layout_switch.hint"))
         self.relayout()
 
     def on_show(self):
         self.key_button.set_label(i18n.t("settings.save"))
+        # Загрузка идёт фоном и не прерывается закрытием панели — вернувшись,
+        # человек должен увидеть текущий процент, а не «Скачать».
+        if not self._ffmpeg_busy:
+            self.ffmpeg_button.set_label(self._ffmpeg_label())
         self.autostart.set_checked(self.settings.get("autostart", True))
 
     def on_hide(self):

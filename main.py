@@ -25,10 +25,32 @@ def _is_only_instance():
 
 
 if __name__ == "__main__":
+    from knack.core import updater
+
+    # Самоприменение обновления: этот же exe (Knack-new.exe) запущен с флагом
+    # --apply-update <старый_exe>. Ждёт выхода старого, подменяет его собой и
+    # запускает. Обрабатываем ДО мьютекса — это не «второй экземпляр».
+    if "--apply-update" in sys.argv:
+        try:
+            index = sys.argv.index("--apply-update")
+            updater.apply_self_update(sys.argv[index + 1]
+                                      if index + 1 < len(sys.argv) else "")
+        except Exception:
+            pass
+        sys.exit(0)
+
     # Второй экземпляр повесил бы второй значок в трее и второй глобальный
     # хоткей — тихо выходим, панель уже работает.
     if not _is_only_instance():
         sys.exit(0)
+
+    # Страховка: если с прошлого раза остался распакованный архив, применяем
+    # то, что не заблокировано.
+    try:
+        updater.apply_pending()
+        updater.cleanup_applied()
+    except Exception:
+        pass
 
     from knack.app import main
     sys.exit(main())

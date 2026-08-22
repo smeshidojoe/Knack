@@ -7,7 +7,7 @@ from .constants import APP_DIR, CONFIG_PATH
 def defaults():
     return {
         "theme":             "dark",       # имя темы из ui/theme.py
-        "language":          "ru",
+        "language":          "en",
 
         # Как открывать панель: hover | hotkey | hover+hotkey | tray
         "trigger":           "hover+hotkey",
@@ -27,7 +27,16 @@ def defaults():
         "autostart":         True,
         "last_tab":          "media",
 
+        # Смена раскладки у выделенного текста по горячей клавише.
+        "layout_switch_enabled":   True,
+        "layout_hotkey":           "ctrl+alt+l",
+        "layout_restore_clipboard": True,
+
         "clipboard_limit":   100,          # длина истории текстового буфера
+
+        # Превью кадра для видео и обложки для музыки на полке. Требует ffmpeg,
+        # он качается по требованию в %APPDATA%/Knack/tools.
+        "shelf_video_thumbs": True,
 
         # Переводчик: argos (офлайн) | deepl (ключ). Переключатель — в настройках.
         "translate_backend": "argos",
@@ -94,8 +103,15 @@ def validate(data):
                                       integer=False)
     data["animation_fps"]   = _num_in(data.get("animation_fps"), 0, 360, 0)
 
-    if not str(data.get("hotkey") or "").strip():
-        data["hotkey"] = d["hotkey"]
+    for key in ("hotkey", "layout_hotkey"):
+        if not str(data.get(key) or "").strip():
+            data[key] = d[key]
+    # Два одинаковых сочетания — второе просто не зарегистрируется, и настройка
+    # выглядела бы рабочей, ничего не делая.
+    if data["layout_hotkey"] == data["hotkey"]:
+        data["layout_hotkey"] = d["layout_hotkey"]
+        if data["layout_hotkey"] == data["hotkey"]:
+            data["hotkey"] = d["hotkey"]
 
     return data
 

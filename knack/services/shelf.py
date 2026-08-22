@@ -7,6 +7,10 @@
 Медиафайлы (музыка, видео) не копируются: на полке лежит путь к оригиналу, и по
 клику в буфер уходит именно он — так файл вставляется в чат через Ctrl+V.
 
+Для видео и музыки превью снимает ffmpeg: у видео берётся кадр, у аудиофайла —
+вшитая обложка. Сам ffmpeg в сборку не кладём, он качается по требованию в
+%APPDATA%/Knack/tools (см. core/tools.py).
+
 Брошенная картинка КОПИРУЕТСЯ побайтово, без разбора и пережатия: фотография с
 телефона это два десятка мегапикселей, и её декодирование с последующей упаковкой
 в PNG занимало на потоке интерфейса несколько секунд — панель всё это время
@@ -14,6 +18,7 @@
 само.
 """
 
+import hashlib
 import os
 import shutil
 import threading
@@ -24,12 +29,13 @@ from PySide6.QtCore import (QFileSystemWatcher, QMimeData, QObject, Qt, QTimer,
                             QUrl, Signal)
 from PySide6.QtGui import QImage
 
-from ..core import jsonfile, logbook
+from ..core import jsonfile, logbook, tools
 from ..core.constants import SHELF_DIR, SHELF_INDEX
 
 IMAGE_EXT = {".png", ".jpg", ".jpeg", ".bmp", ".gif", ".webp", ".tif", ".tiff"}
-MEDIA_EXT = {".mp3", ".wav", ".flac", ".ogg", ".m4a", ".aac", ".opus",
-             ".mp4", ".mkv", ".avi", ".mov", ".webm", ".m4v"}
+VIDEO_EXT = {".mp4", ".mkv", ".avi", ".mov", ".webm", ".m4v"}
+AUDIO_EXT = {".mp3", ".wav", ".flac", ".ogg", ".m4a", ".aac", ".opus"}
+MEDIA_EXT = VIDEO_EXT | AUDIO_EXT
 
 KIND_IMAGE = "image"
 KIND_MEDIA = "media"
@@ -40,10 +46,14 @@ RESCAN_MS = 200          # пауза перед перепроверкой: Ф�
 
 class ShelfStore(QObject):
     changed = Signal()
+    ffmpeg_state = Signal(str)           # downloading | ready | error
+    ffmpeg_progress = Signal(float)      # доля 0..1 во время загрузки
     _thumb_ready = Signal(str, str)      # (имя файла карточки, имя превью)
 
-    def __init__(self, parent=None):
+    def __init__(self, settings=None, parent=None):
         super().__init__(parent)
+        self.settings = settings if settings is not None else {}
+        self._ffmpeg_lock = threading.Lock()
         self.items = [x for x in jsonfile.load(SHELF_INDEX, []) if isinstance(x, dict)]
         self._thumb_ready.connect(self._on_thumb_ready)
         self._closing = False
@@ -151,13 +161,33 @@ class ShelfStore(QObject):
 
     def _queue_missing_thumbs(self):
         for item in self.items:
-            if item.get("kind") == KIND_IMAGE and not self.preview_path(item):
+            if not self.preview_path(item):
                 self._queue_thumb(item)
 
+    def _thumb_key(self, item):
+        """Имя, от которого пляшет файл превью: у медиа своего файла в папке нет."""
+        name = item.get("file")
+        if name:
+            return os.path.splitext(name)[0]
+        source = item.get("source") or ""
+        # Именно md5, а не hash(): встроенный хеш строк случаен между запусками,
+        # и превью пересоздавалось бы на каждом старте, оставляя мусор.
+        return "media_%s" % hashlib.md5(source.encode("utf-8")).hexdigest()[:12]
+
     def _queue_thumb(self, item):
-        name = item.get("file") or ""
         source = self.path_of(item)
+        name = self._thumb_key(item)
         if not name or not source:
+            return
+        if item.get("kind") == KIND_MEDIA:
+            if not self.settings.get("shelf_video_thumbs", True):
+                return
+            worker = threading.Thread(target=self._media_thumb_worker,
+                                      args=(name, source),
+                                      name="knack-thumb", daemon=True)
+            self._workers = [w for w in self._workers if w.is_alive()]
+            self._workers.append(worker)
+            worker.start()
             return
         worker = threading.Thread(target=self._thumb_worker, args=(name, source),
                                   name="knack-thumb", daemon=True)
@@ -166,7 +196,7 @@ class ShelfStore(QObject):
         worker.start()
 
     def _thumb_worker(self, name, source):
-        """Готовит превью в фоне: QImage вне потока интерфейса безопасен."""
+        """Превью картинки: QImage вне потока интерфейса безопасен."""
         try:
             if self._closing:
                 return
@@ -176,15 +206,84 @@ class ShelfStore(QObject):
             if max(image.width(), image.height()) > THUMB_MAX:
                 image = image.scaled(THUMB_MAX, THUMB_MAX, Qt.KeepAspectRatio,
                                      Qt.SmoothTransformation)
-            thumb = "%s_thumb.png" % os.path.splitext(name)[0]
+            thumb = "%s_thumb.png" % name
             if image.save(os.path.join(SHELF_DIR, thumb), "PNG") and not self._closing:
                 self._thumb_ready.emit(name, thumb)
         except Exception:
             logbook.exc("shelf thumb")
 
+    def _media_thumb_worker(self, name, source):
+        """Кадр из видео или вшитая обложка из аудио — силами ffmpeg."""
+        try:
+            if self._closing or not self._ensure_ffmpeg():
+                return
+            thumb = os.path.join(SHELF_DIR, "%s_thumb.png" % name)
+            audio = os.path.splitext(source)[1].lower() not in VIDEO_EXT
+            args = ["-y"]
+            if not audio:
+                # Первые кадры часто чёрные — отступаем на пару секунд. Если
+                # ролик короче, ffmpeg вернёт ошибку, и мы возьмём самое начало.
+                args += ["-ss", "2"]
+            args += ["-i", source, "-frames:v", "1",
+                     "-vf", "scale=%d:-1:force_original_aspect_ratio=decrease"
+                     % THUMB_MAX, thumb]
+            ok = tools.run(args)
+            if not ok and not audio:
+                ok = tools.run(["-y", "-i", source, "-frames:v", "1",
+                                "-vf", "scale=%d:-1" % THUMB_MAX, thumb])
+            if ok and os.path.isfile(thumb) and not self._closing:
+                self._thumb_ready.emit(name, os.path.basename(thumb))
+        except Exception:
+            logbook.exc("shelf media thumb")
+
+    def fetch_ffmpeg(self, force=False):
+        """Ставит или переставляет ffmpeg по кнопке в настройках."""
+        threading.Thread(target=self._fetch_ffmpeg_worker, args=(force,),
+                         name="knack-ffmpeg", daemon=True).start()
+
+    def _fetch_ffmpeg_worker(self, force):
+        if force:
+            try:
+                os.remove(tools.FFMPEG_EXE)
+            except OSError:
+                pass
+        self.ffmpeg_state.emit("downloading")
+        try:
+            if not tools.have_ffmpeg():
+                tools.download_ffmpeg(on_progress=self.ffmpeg_progress.emit)
+        except Exception:
+            logbook.exc("ffmpeg fetch")
+            self.ffmpeg_state.emit("error")
+            return
+        self.ffmpeg_state.emit("ready")
+        # Свежий ffmpeg — можно достроить превью тем карточкам, что остались без.
+        for item in list(self.items):
+            if item.get("kind") == KIND_MEDIA and not self.preview_path(item):
+                self._queue_thumb(item)
+
+    def _ensure_ffmpeg(self):
+        """Ставит ffmpeg, если его ещё нет. Качает не больше одного раза разом."""
+        if tools.have_ffmpeg():
+            return True
+        if not self.settings.get("shelf_video_thumbs", True):
+            return False
+        with self._ffmpeg_lock:
+            if tools.have_ffmpeg():
+                return True
+            try:
+                logbook.log("полка: качаю ffmpeg для превью видео")
+                self.ffmpeg_state.emit("downloading")
+                tools.download_ffmpeg(on_progress=self.ffmpeg_progress.emit)
+                self.ffmpeg_state.emit("ready")
+                logbook.log("полка: ffmpeg готов")
+            except Exception:
+                logbook.exc("ffmpeg download")
+                return False
+        return tools.have_ffmpeg()
+
     def _on_thumb_ready(self, name, thumb):
         for item in self.items:
-            if item.get("file") == name:
+            if self._thumb_key(item) == name:
                 item["thumb"] = thumb
                 self._save()
                 self.changed.emit()
@@ -252,21 +351,21 @@ class ShelfStore(QObject):
 
         if ext not in MEDIA_EXT:
             return None
-        # Превью кадра из видео тут не берём: для этого нужен ffmpeg, а он ещё
-        # не подключён. Карточка рисуется значком по типу файла.
-        return self._append({"source": path, "kind": KIND_MEDIA,
+        item = self._append({"source": path, "kind": KIND_MEDIA,
                              "added": time.time(),
                              "title": os.path.basename(path)})
+        self._queue_thumb(item)
+        return item
 
     # --- удаление --------------------------------------------------------- #
 
     def _erase_files(self, item):
-        if item.get("kind") != KIND_IMAGE:
-            return
-        try:
-            os.remove(self.path_of(item))
-        except OSError:
-            pass
+        # У медиа удаляем только превью: сам файл принадлежит пользователю.
+        if item.get("kind") == KIND_IMAGE:
+            try:
+                os.remove(self.path_of(item))
+            except OSError:
+                pass
         self._remove_thumb(item)
 
     def remove(self, index):

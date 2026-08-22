@@ -17,9 +17,12 @@ winrt-Windows.Foundation==3.2.1
 winrt-Windows.Foundation.Collections==3.2.1
 
 
-# --- Позже (вкладка «Переводчик») ------------------------------------------ #
-# argostranslate      — офлайн-перевод
-# requests            — DeepL API
+# Офлайн-перевод. Тянет ctranslate2, sentencepiece, а следом spacy, stanza и
+# torch — в сборку последние три не попадают, см. Knack.spec и pyi_hooks/.
+argostranslate==1.11.0
+
+# DeepL API.
+requests==2.32.5
 
 # --- Build only ------------------------------------------------------------ #
 # pyinstaller

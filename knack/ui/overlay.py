@@ -18,11 +18,14 @@ from PySide6.QtGui import QCursor, QGuiApplication, QPainter, QPainterPath
 from PySide6.QtWidgets import QWidget
 
 from ..core import i18n, icons, scale
+from ..core.mouse import left_down
 from ..core.constants import PANEL_H, PANEL_RADIUS, PANEL_W
 from ..core.scale import s, sf
 from ..core.taskbar import panel_edge
 from . import anim, theme
 from .anim import Tween
+from .scale_preview import ScalePreview
+from .update_overlay import UpdateOverlay
 from .pages.clipboard import ClipboardPage
 from .pages.media import MediaPage
 from .pages.notes import NotesPage
@@ -36,22 +39,12 @@ from .widgets.text import Text
 WS_EX_NOACTIVATE = 0x08000000
 WS_EX_TOOLWINDOW = 0x00000080
 GWL_EXSTYLE = -20
-VK_LBUTTON = 0x01
-
 SHOW_MS = 0.24
 HIDE_MS = 0.18
 TRIGGER_H = 3        # высота зоны у края экрана, px макета
 LEAVE_MARGIN = 10    # запас вокруг панели, px макета
 
 LABEL_X, LABEL_Y, LABEL_H, LABEL_W = 15, 9, 11, 140
-
-
-def _mouse_down():
-    """Нажата ли левая кнопка — глобально, независимо от фокуса."""
-    try:
-        return bool(ctypes.windll.user32.GetAsyncKeyState(VK_LBUTTON) & 0x8000)
-    except Exception:
-        return False
 
 
 class Overlay(QWidget):
@@ -103,6 +96,9 @@ class Overlay(QWidget):
 
         self._current = None
         self._slide = Tween(self._on_slide, on_done=self._on_slide_done)
+
+        self._preview = None       # призрак будущего размера, создаётся по нужде
+        self.updating = UpdateOverlay(self)
 
         self._timer = QTimer(self)
         self._timer.timeout.connect(self._tick)
@@ -165,12 +161,58 @@ class Overlay(QWidget):
             self.relayout()
         return screen
 
-    def reapply(self):
+    def preview_scale(self, user_scale):
+        """
+        Показывает, каким станет окно при таком размере.
+
+        Саму панель во время перетаскивания не трогаем: она уезжала бы из-под
+        курсора и шаг ощущался неровным.
+        """
+        screen = self._open_screen or self._target_screen()
+        factor = scale.compute(screen, self.settings.get("scale_override", 0.0),
+                               user_scale)
+        geo = screen.geometry()
+        width = int(round(PANEL_W * factor))
+        height = int(round(PANEL_H * factor))
+        gap = int(round(self.settings.get("edge_gap", 0) * factor))
+        x = geo.x() + (geo.width() - width) // 2
+        if self._edge == "bottom":
+            y = geo.bottom() + 1 - height - gap
+        else:
+            y = geo.y() + gap
+
+        if self._preview is None:
+            self._preview = ScalePreview()
+        self._preview.show_at(QRect(x, y, width, height),
+                              radius=PANEL_RADIUS * factor)
+
+    def start_update(self, title):
+        """Затемняет панель и показывает карточку загрузки."""
+        self.updating.setGeometry(0, 0, self.width(), self.height())
+        self.updating.start(title)
+        self.updating.raise_()
+
+    def update_progress(self, fraction, title=None):
+        if title:
+            self.updating.set_title(title)
+        self.updating.set_progress(fraction)
+
+    def finish_update(self):
+        self.updating.finish()
+
+    def hide_preview(self):
+        if self._preview is not None:
+            self._preview.hide()
+
+    def reapply(self, recenter=True):
         """Перечитать масштаб и отступы после правки настроек."""
         screen = self._open_screen or self._target_screen()
+        keep_x = self._slide_x
         self.apply_scale(screen, force=True)
         if self._open:
             _closed, open_y = self._positions(screen)
+            if not recenter:
+                self._slide_x = keep_x
             self._slide.set(float(open_y))
         self._sync_timer()
 
@@ -185,6 +227,7 @@ class Overlay(QWidget):
             page.setGeometry(0, 0, s(PANEL_W), s(PANEL_H))
             page.relayout()
 
+        self.updating.setGeometry(0, 0, s(PANEL_W), s(PANEL_H))
         self.rail.raise_all()
         self.label.raise_()
         self._laid_out = True
@@ -321,6 +364,10 @@ class Overlay(QWidget):
             self.open_panel()
 
     def _tick_open(self, pos):
+        # Пока идёт обновление, панель не прячем: она вот-вот подменит свой exe
+        # и перезапустится, исчезать в этот момент нельзя.
+        if self.updating.isVisible():
+            return
         mode = self.settings.get("hide_mode", "leave")
         if mode == "manual":
             return
@@ -329,7 +376,7 @@ class Overlay(QWidget):
         inside = area.adjusted(-m, -m, m, m).contains(pos)
 
         if mode == "click_outside":
-            if not inside and _mouse_down():
+            if not inside and left_down():
                 self.close_panel()
             return
 
@@ -339,7 +386,7 @@ class Overlay(QWidget):
         # Пока в панели печатают, уводить её нельзя: мышь в это время может
         # лежать где угодно, а текст пропадёт вместе с окном.
         page = self.current_page()
-        if inside or _mouse_down() or (page and page.wants_keyboard
+        if inside or left_down() or (page and page.wants_keyboard
                                        and self.isActiveWindow()):
             self._out_since = None
             return

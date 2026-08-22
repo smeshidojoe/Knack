@@ -132,6 +132,14 @@ class ClipboardService(QObject):
         self._mark_own(*variants)
         QGuiApplication.clipboard().setMimeData(mime)
 
+    def suppress(self):
+        """Не реагировать на ближайшие изменения буфера.
+
+        Нужна смене раскладки: она сама жмёт Ctrl+C в чужом окне, и ни
+        выхваченный текст, ни его замена в историю попадать не должны.
+        """
+        self._own_at = time.monotonic()
+
     def _is_own(self):
         return (time.monotonic() - self._own_at) < OWN_COPY_SEC
 

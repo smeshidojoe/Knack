@@ -5,8 +5,8 @@
 подменяется русским, а не падает: недостающая строка не должна ронять вкладку.
 """
 
-LANGUAGES = {"ru": "Русский", "en": "English"}
-DEFAULT = "ru"
+LANGUAGES = {"en": "English", "ru": "Русский"}
+DEFAULT = "en"
 
 _language = DEFAULT
 
@@ -76,9 +76,13 @@ STRINGS = {
     # Настройки.
     "settings.section.look":      {"ru": "ВНЕШНИЙ ВИД", "en": "APPEARANCE"},
     "settings.section.panel":     {"ru": "ПАНЕЛЬ", "en": "PANEL"},
+    "settings.section.shelf":     {"ru": "ПОЛКА", "en": "SHELF"},
     "settings.section.clipboard": {"ru": "БУФЕР", "en": "CLIPBOARD"},
     "settings.section.translate": {"ru": "ПЕРЕВОДЧИК", "en": "TRANSLATOR"},
+    "settings.section.layout":    {"ru": "ЗАМЕНА СИМВОЛОВ",
+                                  "en": "CHARACTER REPLACE"},
     "settings.section.system":    {"ru": "СИСТЕМА", "en": "SYSTEM"},
+    "settings.section.tools":     {"ru": "ИНСТРУМЕНТЫ", "en": "TOOLS"},
 
     "settings.language":  {"ru": "Язык интерфейса", "en": "Interface language"},
     "settings.scale":     {"ru": "Размер панели", "en": "Panel size"},
@@ -108,6 +112,13 @@ STRINGS = {
     "settings.monitor.primary": {"ru": "Основной", "en": "Primary"},
     "settings.edge_gap":        {"ru": "Отступ от края", "en": "Edge gap"},
 
+    "settings.video_thumbs": {"ru": "Превью для видео и музыки",
+                              "en": "Previews for video and music"},
+    "settings.video_thumbs.hint": {
+        "ru": "Кадр из видео и обложка из музыки. Для этого один раз скачается ffmpeg",
+        "en": "A frame from video and cover art from music. Downloads ffmpeg once",
+    },
+
     "settings.clipboard_limit": {"ru": "Длина истории", "en": "History length"},
 
     "settings.backend":         {"ru": "Движок", "en": "Engine"},
@@ -121,11 +132,37 @@ STRINGS = {
     "settings.autodetect":      {"ru": "Определять язык по тексту",
                                  "en": "Detect language from text"},
     "settings.models_dir":      {"ru": "Папка моделей", "en": "Models folder"},
+    "settings.choose":          {"ru": "Выбрать", "en": "Choose"},
     "settings.models_pick":     {"ru": "Выбрать папку для языковых моделей",
                                  "en": "Choose the language models folder"},
     "settings.restart_needed":  {"ru": "нужен перезапуск", "en": "restart needed"},
     "settings.save":            {"ru": "Ок", "en": "OK"},
     "settings.saved":           {"ru": "Сохранено", "en": "Saved"},
+
+    "settings.layout_switch": {"ru": "Менять раскладку выделенного",
+                               "en": "Switch layout of selection"},
+    "settings.layout_switch.hint": {
+        "ru": "Выдели текст и нажми сочетание — символы сменят раскладку",
+        "en": "Select text and press the shortcut — the characters switch layout",
+    },
+    "settings.layout_hotkey": {"ru": "Сочетание", "en": "Shortcut"},
+    "settings.layout_restore": {"ru": "Возвращать буфер после замены",
+                                "en": "Restore clipboard afterwards"},
+
+    "settings.app_update":  {"ru": "Версия программы", "en": "App version"},
+    "settings.check":       {"ru": "Проверить", "en": "Check"},
+    "settings.install":     {"ru": "Обновить", "en": "Update"},
+    "settings.percent":     {"ru": "%d%%", "en": "%d%%"},
+    "update.card":          {"ru": "Обновление до %s", "en": "Updating to %s"},
+    "update.card.restart":  {"ru": "Перезапускаюсь", "en": "Restarting"},
+    "settings.ffmpeg":      {"ru": "ffmpeg для превью", "en": "ffmpeg for previews"},
+    "settings.ffmpeg.hint": {"ru": "Нужен, чтобы показывать кадр видео и обложку музыки",
+                             "en": "Needed to show a video frame and music cover art"},
+    "settings.download":    {"ru": "Скачать", "en": "Download"},
+    "settings.reinstall":   {"ru": "Переустановить", "en": "Reinstall"},
+    "settings.working":     {"ru": "Качаю…", "en": "Downloading…"},
+    "settings.done":        {"ru": "Готово", "en": "Done"},
+    "settings.failed":      {"ru": "Не вышло", "en": "Failed"},
 
     "settings.autostart":     {"ru": "Запускать с Windows", "en": "Start with Windows"},
     "settings.autostart.dev": {"ru": "Только в собранном exe",
@@ -134,7 +171,21 @@ STRINGS = {
     # Трей.
     "tray.show":      {"ru": "Показать панель",     "en": "Show panel"},
     "tray.autostart": {"ru": "Запускать с Windows", "en": "Start with Windows"},
+    "tray.update":    {"ru": "Проверить обновление", "en": "Check for updates"},
     "tray.quit":      {"ru": "Выход",               "en": "Quit"},
+
+    "update.checking":    {"ru": "Проверяю обновления…", "en": "Checking for updates…"},
+    "update.current":     {"ru": "Установлена последняя версия",
+                           "en": "You are on the latest version"},
+    "update.available":   {"ru": "Есть версия %s — качаю",
+                           "en": "Version %s is available — downloading"},
+    "update.downloading": {"ru": "Качаю обновление…", "en": "Downloading update…"},
+    "update.ready":       {"ru": "Обновление готово, перезапускаюсь",
+                           "en": "Update ready, restarting"},
+    "update.error":       {"ru": "Не удалось проверить обновления",
+                           "en": "Could not check for updates"},
+    "update.dev":         {"ru": "Обновление работает только в собранной программе",
+                           "en": "Updates work only in the built app"},
 }
 
 
