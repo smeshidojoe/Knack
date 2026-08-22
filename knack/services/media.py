@@ -90,6 +90,7 @@ class MediaState:
     playing: bool = False
     can_prev: bool = False
     can_next: bool = False
+    can_seek: bool = False
     position: float = 0.0
     duration: float = 0.0
     sampled_at: float = field(default_factory=time.monotonic)
@@ -147,6 +148,7 @@ class MediaService(QObject):
         self._locked = ""            # app_id сессии, за которой следим
         self._pinned = False         # выбрана вручную, автоматике не отдаём
         self._no_sessions_api = False   # get_sessions недоступен, жалуемся один раз
+        self._start_offset = 0.0        # начало трека по версии источника
 
         self._available = _import_winrt() is not None
         if not self._available:
@@ -233,7 +235,13 @@ class MediaService(QObject):
         self._command(lambda s: s.try_skip_previous_async())
 
     def seek(self, seconds):
-        ticks = max(0, int(seconds * 10_000_000))    # WinRT считает в 100 нс
+        """
+        Перемотка. Секунды приходят от полосы прогресса, то есть отсчитанные от
+        НАЧАЛА трека, а SMTC ждёт позицию в тех же координатах, что и
+        `timeline.position` — со сдвигом на `start_time`. У части источников он
+        не нулевой, и без поправки перемотка уезжала мимо или отвергалась.
+        """
+        ticks = max(0, int((seconds + self._start_offset) * 10_000_000))
         self._command(lambda s: s.try_change_playback_position_async(ticks))
 
     def _command(self, call):
@@ -405,9 +413,15 @@ class MediaService(QObject):
             controls = info.controls
             state.can_prev = bool(controls.is_previous_enabled)
             state.can_next = bool(controls.is_next_enabled)
+            # Источник сам объявляет, принимает ли он перемотку. Браузерные
+            # плееры часто не принимают, и полосу тогда честнее погасить, чем
+            # делать вид, что клик по ней что-то меняет.
+            state.can_seek = bool(getattr(controls, "is_playback_position_enabled",
+                                          False))
 
             timeline = session.get_timeline_properties()
             start = timeline.start_time.total_seconds()
+            self._start_offset = start
             state.duration = max(0.0, timeline.end_time.total_seconds() - start)
             position = max(0.0, timeline.position.total_seconds() - start)
             if state.playing:

@@ -8,7 +8,7 @@
 Все контролы работают в координатах макета: размеры приходят через scale.s().
 """
 
-from PySide6.QtCore import QRectF, Qt, Signal
+from PySide6.QtCore import QEasingCurve, QRectF, Qt, Signal
 from PySide6.QtGui import QFontMetrics, QPainter
 from PySide6.QtWidgets import QWidget
 
@@ -440,15 +440,30 @@ class HotkeyField(_Base):
 
 
 class TextButton(_Base):
-    """Небольшая текстовая кнопка («Ок» рядом с ключом)."""
+    """
+    Небольшая текстовая кнопка («Ок» рядом с ключом, «Очистить» в буфере).
+
+    flat=True — без подложки, только текст: так «Очистить» нарисовано в макете.
+    Нажатие всё равно должно быть видно, поэтому кнопка поджимается и светлеет.
+    """
 
     clicked = Signal()
 
     H, RADIUS, PAD = 20, 7, 12
+    PRESS_SCALE = 0.92
 
-    def __init__(self, parent=None, label=""):
+    def __init__(self, parent=None, label="", flat=False):
         super().__init__(parent)
         self.label = label
+        self.flat = flat
+        self._down = False
+        self._scale = Tween(self._on_scale, value=1.0, duration=0.10)
+
+    def _on_scale(self, value):
+        self._press = value
+        self.update()
+
+    _press = 1.0
 
     def set_label(self, label):
         self.label = label
@@ -457,19 +472,46 @@ class TextButton(_Base):
     def width_hint(self):
         return QFontMetrics(self._font).horizontalAdvance(self.label) + s(self.PAD) * 2
 
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self._down = True
+            self._scale.target(self.PRESS_SCALE, 0.08)
+
     def mouseReleaseEvent(self, event):
-        if event.button() == Qt.LeftButton and self.rect().contains(
-                event.position().toPoint()):
+        if event.button() != Qt.LeftButton or not self._down:
+            return
+        self._down = False
+        self._scale.target(1.0, 0.18, QEasingCurve.OutBack)
+        if self.rect().contains(event.position().toPoint()):
             self.clicked.emit()
+
+    def leaveEvent(self, event):
+        self._down = False
+        self._scale.target(1.0, 0.12)
+        super().leaveEvent(event)
 
     def paintEvent(self, _event):
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing, True)
         p.setRenderHint(QPainter.TextAntialiasing, True)
+
+        cx, cy = self.width() / 2, self.height() / 2
+        p.translate(cx, cy)
+        p.scale(self._press, self._press)
+        p.translate(-cx, -cy)
+
         p.setFont(self._font)
-        radius = sf(self.RADIUS)
-        p.setPen(Qt.NoPen)
-        p.setBrush(theme.color("surface_hover" if self._hover else "surface"))
-        p.drawRoundedRect(QRectF(self.rect()), radius, radius)
-        p.setPen(theme.color("text_bright" if self._hover else "text_button"))
+        if not self.flat:
+            radius = sf(self.RADIUS)
+            p.setPen(Qt.NoPen)
+            p.setBrush(theme.color("surface_hover" if self._hover else "surface"))
+            p.drawRoundedRect(QRectF(self.rect()), radius, radius)
+
+        if self._down:
+            role = "text_bright"
+        elif self._hover:
+            role = "text_bright" if not self.flat else "text_secondary"
+        else:
+            role = "text_faint" if self.flat else "text_button"
+        p.setPen(theme.color(role))
         p.drawText(self.rect(), int(Qt.AlignCenter), self.label)

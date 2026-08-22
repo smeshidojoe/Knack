@@ -14,6 +14,7 @@ from ...core import fonts, i18n, icons
 from ...core.constants import BODY_R
 from ...core.scale import s, sf
 from .. import theme
+from ..widgets.controls import TextButton
 from ..widgets.listview import ListView
 from ..widgets.text import Text
 from .base import Page
@@ -85,8 +86,8 @@ class ClipboardPage(Page):
 
         self.empty = Text(self, text=i18n.t("clipboard.empty"),
                           role="text_muted", align=Qt.AlignHCenter)
-        self.clear = Text(self, text=i18n.t("clipboard.clear"),
-                          role="text_faint", align=Qt.AlignRight)
+        self.clear = TextButton(self, i18n.t("clipboard.clear"), flat=True)
+        self.clear.clicked.connect(self.service.clear)
 
         service.history_changed.connect(self._refresh)
         self._refresh()
@@ -100,9 +101,10 @@ class ClipboardPage(Page):
         self.empty.set_font_px(s(9), "Medium")
         self.empty.setGeometry(s(ROW_X), s(ROW_Y), s(BODY_R) - s(ROW_X),
                                s(LIST_BOTTOM) - s(ROW_Y))
-        self.clear.set_font_px(s(CLEAR_PX), "Semibold")
-        width = s(90)
-        self.clear.setGeometry(s(CLEAR_R) - width, s(CLEAR_Y), width, s(CLEAR_H))
+        self.clear.restyle()
+        width = max(s(60), self.clear.width_hint())
+        height = s(CLEAR_H) + s(8)
+        self.clear.setGeometry(s(CLEAR_R) - width, s(CLEAR_Y) - s(4), width, height)
         self.list.refresh()
 
     # --- поведение --------------------------------------------------------- #
@@ -120,12 +122,6 @@ class ClipboardPage(Page):
             self.service.copy_text(self.service.history[index].get("text"))
             self.list.flash(index)
 
-    def mouseReleaseEvent(self, event):
-        # «Очистить» — просто подпись, отдельная кнопка тут была бы лишней.
-        if (event.button() == Qt.LeftButton and self.clear.isVisible()
-                and self.clear.geometry().contains(event.position().toPoint())):
-            self.service.clear()
-
     def retranslate(self):
         self.empty.set_text(i18n.t("clipboard.empty"))
-        self.clear.set_text(i18n.t("clipboard.clear"))
+        self.clear.set_label(i18n.t("clipboard.clear"))

@@ -214,6 +214,10 @@ class MediaPage(Page):
         self.prev.setEnabled(bool(state and state.can_prev))
         self.next.setEnabled(bool(state and state.can_next))
         self.play.setEnabled(state is not None)
+        # Перемотку принимают не все источники: браузерные плееры часто её не
+        # объявляют, и клик по полосе у них просто ничего не делает. В таком
+        # случае полоса остаётся индикатором, но перестаёт ловить мышь.
+        self.bar.setEnabled(bool(state and state.can_seek and state.duration > 0))
 
         # Переключатель источника нужен, только когда источников больше одного.
         many = self.service.source_count() > 1

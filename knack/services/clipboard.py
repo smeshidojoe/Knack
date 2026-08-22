@@ -40,6 +40,31 @@ OWN_COPY_SEC = 1.5
 MAX_TEXT = 20000     # длиннее в историю не кладём: это уже не «скопированное»
 
 
+def _is_file_list(mime):
+    """
+    В буфере лежат файлы, а не текст.
+
+    Ctrl+X или Ctrl+C по файлу в Проводнике кладёт список файлов, и Qt отдаёт
+    его ещё и текстом — строкой `file:///C:/...`. В историю СКОПИРОВАННОГО
+    ТЕКСТА такому не место.
+
+    Ссылку из браузера это не задевает: у неё адрес http(s), а не локальный
+    файл, и она по-прежнему попадает в историю.
+    """
+    urls = mime.urls()
+    if not urls or not all(url.isLocalFile() for url in urls):
+        return False
+    text = (mime.text() or "").strip()
+    if not text:
+        return True
+    known = set()
+    for url in urls:
+        known.add(url.toString())
+        known.add(url.toLocalFile())
+    lines = {line.strip() for line in text.splitlines() if line.strip()}
+    return lines.issubset(known)
+
+
 def _image_hash(image):
     """Отпечаток содержимого картинки; буфер отдаём хешу без копии."""
     try:
@@ -59,7 +84,7 @@ class ClipboardService(QObject):
                         if isinstance(x, dict) and x.get("text")]
 
         self._own_at = 0.0          # когда мы сами писали в буфер
-        self._own_text = ""
+        self._own_texts = set()     # и что именно там оказалось
         self._last_hash = ""        # отпечаток последней принятой картинки
         self._last_hash_at = 0.0
 
@@ -78,9 +103,16 @@ class ClipboardService(QObject):
 
     # --- запись в буфер --------------------------------------------------- #
 
-    def _mark_own(self, text=""):
+    def _mark_own(self, *texts):
+        """
+        Запоминаем, что и когда положили в буфер сами.
+
+        Одного окна по времени мало: событие о нашей же записи иногда приходит
+        позже, и путь к файлу всплывал в истории как «скопированный текст».
+        Поэтому сверяемся ещё и по содержимому.
+        """
         self._own_at = time.monotonic()
-        self._own_text = text or ""
+        self._own_texts = {x for x in texts if x}
 
     def copy_text(self, text):
         """Кладёт текст в буфер, не поднимая его же обратно в историю."""
@@ -90,7 +122,14 @@ class ClipboardService(QObject):
         QGuiApplication.clipboard().setText(text)
 
     def copy_mime(self, mime):
-        self._mark_own(mime.text() or "")
+        # Ссылки на файлы Windows отдаёт текстом как file:///... — такую строку
+        # в историю класть незачем, поэтому помечаем оба написания.
+        variants = [mime.text() or ""]
+        for url in mime.urls():
+            variants.append(url.toString())
+            if url.isLocalFile():
+                variants.append(url.toLocalFile())
+        self._mark_own(*variants)
         QGuiApplication.clipboard().setMimeData(mime)
 
     def _is_own(self):
@@ -146,8 +185,14 @@ class ClipboardService(QObject):
             self._try_image()
             return
 
+        if _is_file_list(mime):
+            return
+
         if mime.hasText():
-            self.add_text(mime.text())
+            text = mime.text()
+            if text in self._own_texts or text.strip() in self._own_texts:
+                return
+            self.add_text(text)
 
     def _try_image(self):
         if self._is_own():

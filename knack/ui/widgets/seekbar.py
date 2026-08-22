@@ -78,6 +78,7 @@ class SeekBar(QWidget):
     def enterEvent(self, event):
         self._hover = True
         self._hover_x = event.position().x()
+        self.setCursor(Qt.PointingHandCursor if self.isEnabled() else Qt.ArrowCursor)
         self.update()
         super().enterEvent(event)
 
@@ -124,7 +125,7 @@ class SeekBar(QWidget):
         p.setBrush(theme.color("track"))
         p.drawRoundedRect(QRectF(0, y, self.width(), h), r, r)
 
-        if self._hover and self._duration > 0 and not self._drag:
+        if self._hover and self.isEnabled() and self._duration > 0 and not self._drag:
             pw, ph = sf(PREVIEW_W), sf(PREVIEW_H)
             x = min(max(self._hover_x - pw / 2, 0), self.width() - pw)
             p.setBrush(theme.color("track_preview"))
@@ -137,7 +138,7 @@ class SeekBar(QWidget):
             p.setBrush(theme.color("track_fill"))
             p.drawRoundedRect(QRectF(0, y, w, h), r, r)
 
-        if (self._hover or self._drag) and self._duration > 0:
+        if (self._hover or self._drag) and self.isEnabled() and self._duration > 0:
             knob = sf(KNOB_R)
             cx = min(max(self.width() * frac, knob), self.width() - knob)
             p.setBrush(theme.color("track_fill"))
