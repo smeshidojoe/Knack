@@ -1,17 +1,20 @@
 # Knack
 
-Выезжающая панель для Windows. Подводишь курсор к краю экрана — съезжает плашка
-с музыкой, полкой скриншотов, историей буфера, сниппетами, заметками и
-переводчиком. Убрал курсор — уехала обратно.
+**English** · [Русский](README.ru.md)
 
-![Вкладка «Музыка»](img/media.png)
+A sliding panel for Windows. Move the pointer to the edge of the screen and a
+strip slides out with your music, a shelf of screenshots, clipboard history,
+snippets, notes and a translator. Move away and it slides back.
 
-Идея и раскладка вдохновлены [cyclop](https://github.com/akalikbergenov/cyclop) —
-там панель прячется в чёлку MacBook, здесь выезжает из свободного края экрана.
+![Music tab](img/media.png)
 
-## Установка
+The idea and layout are inspired by
+[cyclop](https://github.com/akalikbergenov/cyclop) — there the panel hides in the
+MacBook notch, here it slides out of whichever screen edge is free.
 
-Нужен Python 3.13, Windows 10 или 11.
+## Install
+
+Needs Python 3.13 and Windows 10 or 11.
 
 ```bash
 pip install -r requirements.txt
@@ -21,209 +24,215 @@ pip install -r requirements.txt
 python main.py
 ```
 
-Программа живёт в трее. Значок подстраивается под тему Windows: белый на тёмной
-панели задач, тёмный на светлой.
+Knack lives in the tray. Its icon follows the Windows theme: light on a dark
+taskbar, dark on a light one.
 
-## Как открыть панель
+## Opening the panel
 
-| Способ | Как |
+| Way | How |
 |---|---|
-| Наведением | Подвести курсор к свободному краю экрана и задержать на 150 мс |
-| Хоткеем | `Ctrl+Alt+K` |
-| Из трея | Клик по значку |
+| Hover | Hold the pointer at the free screen edge for 150 ms |
+| Hotkey | `Ctrl+Alt+K` |
+| Tray | Click the icon |
 
-Панель выезжает из края, противоположного панели задач: она снизу — панель
-сверху, и наоборот. Появляется на том мониторе, где курсор.
+The panel slides out of the edge opposite the taskbar: taskbar at the bottom,
+panel at the top, and the other way round. It appears on the monitor the pointer
+is on.
 
-## Вкладки
+## Tabs
 
-### Музыка
+### Music
 
-Обложка, название, исполнитель, кнопки и полоса перемотки. Данные берутся из
-Windows Media Session — работает со всем, что звучит: браузеры, Spotify, плееры.
-Если источников несколько, клик по названию в правом верхнем углу переключает
-между ними.
+Cover art, title, artist, transport buttons and a seek bar. Data comes from the
+Windows Media Session, so it works with anything that plays sound: browsers,
+Spotify, media players. With several sources active, clicking the source name in
+the top right switches between them.
 
-Перемотку принимают не все источники. Те, что её не заявляют, показывают полосу
-как индикатор, без реакции на клик.
+Not every source accepts seeking. Those that do not advertise it get the bar as a
+plain indicator that ignores clicks.
 
-### Полка
+### Shelf
 
-![Полка](img/shelf.png)
+![Shelf](img/shelf.png)
 
-Скриншоты из буфера падают сюда сами, файлы можно бросить мышью. Клик кладёт
-картинку в буфер, крестик убирает карточку. Карточку можно утащить мышью обратно
-наружу — в папку, в чат, в любое окно, принимающее файлы. У музыки и видео в
-буфер уходит путь к файлу, так его вставляют в чат обычным `Ctrl+V`.
+Screenshots you copy land here on their own, and files can be dropped in with the
+mouse. A click puts the picture on the clipboard, the cross removes the card. A
+card can be dragged back out — into a folder, a chat, any window that takes
+files. For music and video the clipboard gets the file path, which is what chats
+paste with `Ctrl+V`.
 
-У видео на карточке показывается кадр, у музыки — вшитая обложка. Для этого
-нужен ffmpeg: он скачивается один раз в `%APPDATA%\Knack\tools`, когда на полку
-впервые попадает такой файл. Не нужно — выключается в настройках.
+Files live in `%APPDATA%\Knack\clipboard` and survive restarts. Delete a file
+outside the app and its card disappears by itself.
 
-Файлы лежат в `%APPDATA%\Knack\clipboard` и переживают перезапуск. Удалишь файл
-мимо программы — карточка исчезнет сама.
+Video cards show a frame, music cards show the embedded cover art. That needs
+ffmpeg: it is downloaded once into `%APPDATA%\Knack\tools` when such a file first
+reaches the shelf. Not wanted — switch it off in settings.
 
-### Буфер
+### Clipboard
 
-![Буфер](img/clipboard.png)
+![Clipboard](img/clipboard.png)
 
-История скопированного текста, свежее сверху. Клик возвращает строку в буфер,
-крестик убирает одну запись, «Очистить» — всю историю. По умолчанию хранится 100
-записей. Файлы, скопированные в Проводнике, сюда не попадают: это не текст.
+History of copied text, newest first. A click puts the line back on the
+clipboard, the cross drops one entry, "Clear" drops all of them. A hundred
+entries are kept by default. Files copied in Explorer are not stored here: they
+are not text.
 
-### Сниппеты
+### Snippets
 
-![Сниппеты](img/snippets.png)
+![Snippets](img/snippets.png)
 
-Почта, телефон, ссылки — то, что надоело набирать. Клик копирует значение. Поиск
-работает и по названию, и по содержимому. Плюс справа добавляет запись: слева
-имя, справа значение, `Enter` сохраняет, `Esc` отменяет.
+Email, phone, links — whatever you are tired of typing. A click copies the value.
+Search matches both the name and the content. The plus on the right turns the bar
+into an add row: name on the left, value on the right, `Enter` saves, `Esc`
+cancels.
 
-Файл `%APPDATA%\Knack\snippets.json` правится и руками.
+The file `%APPDATA%\Knack\snippets.json` can also be edited by hand.
 
-### Заметки
+### Notes
 
-![Заметки](img/notes.png)
+![Notes](img/notes.png)
 
-Список слева, текст справа. Заголовком становится первая строка заметки. Пустые
-заметки убираются сами при уходе с вкладки.
+List on the left, text on the right. The first line of a note becomes its title.
+Empty notes are cleaned up when you leave the tab.
 
-### Переводчик
+### Translator
 
-![Переводчик](img/translate.png)
+![Translator](img/translate.png)
 
-Две панели, язык у каждой свой — клик по подписи открывает список. Кнопка между
-панелями меняет их местами вместе с уже переведённым текстом. Направление
-определяется по набранному тексту: наберёшь кириллицу в поле с английским —
-панели поменяются сами.
+Two panes, each with its own language — click the label to pick one. The button
+between them swaps the panes together with the text already translated. The
+direction follows what you type: type Cyrillic into the pane set to English and
+the panes swap themselves.
 
-Движок выбирается в настройках:
+The engine is chosen in settings:
 
-- **Офлайн** — [Argos Translate](https://github.com/argosopentech/argos-translate),
-  входит в сборку и работает без интернета. Языковые модели скачиваются при
-  первом переводе нужной пары, около 200 МБ; папку для них можно выбрать.
-- **DeepL** — по ключу API, вставляется в настройках.
+- **Offline** — [Argos Translate](https://github.com/argosopentech/argos-translate),
+  shipped with the app and works without a connection. Language models are
+  downloaded the first time you use a pair, around 200 MB; you can pick the
+  folder for them.
+- **DeepL** — with an API key, pasted in settings.
 
-Движок подгружается, как только открыл вкладку, — пока набираешь текст, он уже
-готов.
+The engine starts loading as soon as you open the tab, so it is ready by the time
+you finish typing.
 
-### Настройки
+### Settings
 
-![Настройки](img/settings.png)
+![Settings](img/settings.png)
 
-| Раздел | Что настраивается |
+| Section | What it covers |
 |---|---|
-| Внешний вид | Язык интерфейса, размер панели, плавность анимаций |
-| Панель | Чем открывать и чем прятать, задержки, сочетание, монитор, отступ от края |
-| Полка | Превью для видео и музыки |
-| Инструменты | Проверка обновления, установка ffmpeg |
-| Буфер | Длина истории |
-| Переводчик | Движок, ключ DeepL, папка моделей, определение языка |
-| Замена символов | Включение, сочетание, возврат буфера |
-| Система | Автозапуск с Windows |
+| Appearance | Interface language, panel size, animation rate |
+| Panel | What opens and hides it, delays, shortcut, monitor, edge gap |
+| Shelf | Previews for video and music |
+| Clipboard | History length |
+| Translator | Engine, DeepL key, models folder, language detection |
+| Character replace | On or off, shortcut, clipboard restore |
+| System | Start with Windows |
+| Tools | Update check, ffmpeg install |
 
-Всё применяется сразу, кнопки «Сохранить» нет.
+Everything applies immediately; there is no Save button.
 
-## Замена символов
+## Character replace
 
-Набрал «Ghbdtn», а хотел «Привет»? Выдели текст и нажми `Ctrl+Alt+L` — символы
-перепишутся так, как если бы раскладка была правильной. Направление определяется
-по самому тексту.
+Typed "Ghbdtn" when you meant "Привет"? Select the text and press `Ctrl+Alt+L` —
+the characters are rewritten as if the layout had been right. The direction is
+worked out from the text itself.
 
-Таблица строится по раскладкам, установленным в системе, а не зашита в
-программу: работает с любой парой, которая у тебя стоит.
+The table is built from the keyboard layouts installed in your system rather than
+hard-coded, so it works with whatever pair you have.
 
-Не сработает в окнах, запущенных от администратора: синтетический ввод из
-обычной программы туда не проходит. То же ограничение у Punto Switcher.
+It will not work in windows running as administrator: synthetic input from an
+ordinary program does not reach them. Punto Switcher has the same limitation.
 
-## Горячие клавиши
+## Shortcuts
 
-| Сочетание | Действие |
+| Keys | Action |
 |---|---|
-| `Ctrl+Alt+K` | Показать или спрятать панель |
-| `Ctrl+Alt+L` | Сменить раскладку выделенного текста |
+| `Ctrl+Alt+K` | Show or hide the panel |
+| `Ctrl+Alt+L` | Switch the layout of the selected text |
 
-Оба меняются в настройках: нажимаешь на поле и вводишь новое сочетание.
+Both can be changed in settings: click the field and press the new combination.
 
-## Обновления
+## Updates
 
-Пункт «Проверить обновление» в меню трея смотрит релизы на GitHub. Если вышла
-версия новее, программа скачивает zip, подменяет свой exe и перезапускается.
-Работает только в собранной программе: из исходников подменять нечего.
+"Check for updates" in the tray menu looks at the GitHub releases. If a newer
+version is out, the app downloads the zip, replaces its own exe and restarts. It
+only works in the built app: there is nothing to replace when running from
+source.
 
-## Где лежат данные
+## Where the data lives
 
-Всё в `%APPDATA%\Knack`:
+Everything sits in `%APPDATA%\Knack`:
 
-| Файл | Что внутри |
+| File | What is inside |
 |---|---|
-| `config.json` | Настройки |
-| `clipboard_history.json` | История буфера |
-| `shelf.json`, `clipboard/` | Полка и её файлы |
-| `snippets.json` | Сниппеты |
-| `notes.json` | Заметки |
-| `translate/` | Языковые модели переводчика |
-| `tools/` | ffmpeg для превью видео |
-| `knack.log` | Лог |
+| `config.json` | Settings |
+| `clipboard_history.json` | Clipboard history |
+| `shelf.json`, `clipboard/` | The shelf and its files |
+| `snippets.json` | Snippets |
+| `notes.json` | Notes |
+| `translate/` | Translator language models |
+| `tools/` | ffmpeg for video previews |
+| `knack.log` | Log |
 
-Наружу программа ходит в четырёх случаях: за обновлением на GitHub, за
-языковыми моделями переводчика, за ffmpeg для превью и в DeepL, если ты сам
-вписал ключ. Больше никуда ничего не отправляется.
+Knack reaches the network in four cases: an update on GitHub, translator language
+models, ffmpeg for previews, and DeepL if you entered a key yourself. Nothing
+else is sent anywhere.
 
-## Чего пока нет
+## Not there yet
 
-- Календаря с ближайшей встречей — в cyclop он есть.
-- Тем, кроме тёмной. Цвета вынесены ролями, новая тема — один объект в
-  `knack/ui/theme.py`.
+- A calendar with the next meeting — cyclop has one.
+- Themes beyond the dark one. Colours are kept as roles, so a new theme is one
+  object in `knack/ui/theme.py`.
 
-## Под капотом
+## Under the hood
 
-Панель не забирает фокус у активной программы, поэтому не сбивает набор текста;
-фокус берётся только на вкладках с полями ввода.
+The panel never takes focus from the active program, so it does not interrupt
+typing; focus is taken only on tabs with input fields.
 
-Анимации идут на частоте монитора, а не в жёстких 60 кадрах — на 180 Гц разница
-заметна. Частоту можно прибить к 60 в настройках.
+Animations run at the refresh rate of the monitor rather than a fixed 60 frames —
+the difference shows at 180 Hz. The rate can be pinned to 60 in settings.
 
-Макет нарисован под 2560x1440, остальные разрешения получаются масштабированием
-от высоты экрана: 1080p даёт панель 718x240, 1440p 835x279, 4K 1070x358. Сверху
-работает ползунок размера.
+The layout is drawn for 2560x1440; other resolutions are scaled from the screen
+height: 1080p gives a 718x240 panel, 1440p 835x279, 4K 1070x358. A size slider
+works on top of that.
 
-За буфером обмена следим по событию системы, без опроса. Пока панель закрыта, у
-программы не тикает ни один таймер.
+The clipboard is watched through a system event, not polling. While the panel is
+closed, not a single timer is running.
 
-## Иконки
-
-![Значки](img/icons.png)
-
-Слева значок программы, справа монохромный для трея — на тёмной и светлой панели
-задач. Все размеры и цвета получаются из одного SVG на лету, отдельных файлов
-под каждый размер нет.
-
-## Сборка exe
+## Building
 
 ```bash
 pyinstaller --clean --noconfirm Knack.spec
 ```
 
-Готовый `dist\Knack.exe` собирается с иконкой и полем версии, которое берётся из
-`knack/core/constants.py` — поднять версию значит поправить там одну строку.
+The resulting `dist\Knack.exe` carries the icon and a version resource taken from
+`knack/core/constants.py`, so bumping the version means editing one line there.
 
-Установщик собирается в Inno Setup 6:
+The installer is built with Inno Setup 6:
 
 ```bash
 iscc knack_setup.iss
 ```
 
-Он ставит программу в папку пользователя без прав администратора, предлагает
-ярлык на рабочем столе и автозапуск, а при удалении спрашивает, оставлять ли
-полку с заметками.
+It installs into the folder of the current user without administrator rights,
+offers a desktop shortcut and autostart, and asks on uninstall whether to keep
+the shelf and notes.
 
-Офлайн-переводчик входит в сборку. Сам `argostranslate` тянет за собой spacy,
-stanza и torch — вместе почти полтора гигабайта, из них torch 1.2 ГБ. Ни один из
-трёх при переводе готовой моделью не используется, поэтому в `Knack.spec` они
-исключены, а вместо них подставляются пустые модули из `pyi_hooks/`. Разбиение
-на предложения принудительно переведено на minisbd.
+The offline translator is part of the build. `argostranslate` itself drags in
+spacy, stanza and torch — nearly 1.4 GB together, 1.2 GB of which is torch. None
+of the three is used when translating with a ready model, so `Knack.spec`
+excludes them and substitutes empty modules from `pyi_hooks/`. Sentence splitting
+is pinned to minisbd.
 
-## Благодарности
+## Icons
 
-[cyclop](https://github.com/akalikbergenov/cyclop) — источник идеи.
+![Icons](img/icons.png)
+
+The app icon on the left, the monochrome tray one on the right, over a dark and a
+light taskbar. Every size and colour is produced from a single SVG at runtime —
+there are no per-size files.
+
+## Credits
+
+[cyclop](https://github.com/akalikbergenov/cyclop) — where the idea came from.
