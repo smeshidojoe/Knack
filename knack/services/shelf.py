@@ -328,10 +328,28 @@ class ShelfStore(QObject):
         self._queue_thumb(item)
         return item
 
+    def has_file(self, path):
+        """
+        Этот файл уже на полке?
+
+        Карточку можно утащить наружу и, передумав, вернуть в окно — тогда к нам
+        приезжает наш же файл, и без проверки появлялась вторая такая же
+        карточка. У картинок сравниваем папку (наружу уходит наша копия), у
+        медиа — путь к оригиналу.
+        """
+        path = os.path.normcase(os.path.abspath(path))
+        if os.path.dirname(path) == os.path.normcase(os.path.abspath(SHELF_DIR)):
+            return True
+        for item in self.items:
+            source = item.get("source") or ""
+            if source and os.path.normcase(os.path.abspath(source)) == path:
+                return True
+        return False
+
     def add_file(self, path):
         """Файл, брошенный на панель."""
         path = os.path.abspath(path)
-        if not os.path.isfile(path):
+        if not os.path.isfile(path) or self.has_file(path):
             return None
         ext = os.path.splitext(path)[1].lower()
 

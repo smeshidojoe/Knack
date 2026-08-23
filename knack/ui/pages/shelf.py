@@ -325,13 +325,25 @@ class ShelfPage(Page):
         event.acceptProposedAction()
 
     def dropEvent(self, event):
-        mime = event.mimeData()
+        self.take_drop(event.mimeData())
+        event.acceptProposedAction()
+
+    def take_drop(self, mime):
+        """
+        Принимает брошенное: файлы по ссылкам либо картинку из буфера.
+
+        Если ссылки на файлы есть, картинку из того же события не берём: своя же
+        карточка, вернувшаяся в окно, несёт и то и другое, и она добавилась бы
+        второй раз уже как изображение.
+        """
         if mime.hasUrls():
             for url in mime.urls():
                 if url.isLocalFile():
                     self.store.add_file(url.toLocalFile())
-        elif mime.hasImage():
+            return True
+        if mime.hasImage():
             image = mime.imageData()
             if image is not None:
                 self.store.add_image(image)
-        event.acceptProposedAction()
+            return True
+        return False

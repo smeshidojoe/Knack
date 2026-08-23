@@ -1,8 +1,8 @@
 """
 Вкладки панели.
 
-Шесть в колонке слева и «Заметки» отдельной кнопкой у правого края — так в
-макете. Центры левой колонки распределяются равномерно между RAIL_FIRST_Y и
+Шесть в колонке слева, «Заметки» и TODO отдельными кнопками у правого края —
+так в макете. Центры левой колонки распределяются равномерно между RAIL_FIRST_Y и
 RAIL_LAST_Y: при шести вкладках шаг выходит ровно 26 px, как нарисовано.
 
 TabBar не виджет, а раскладчик: кнопки живут прямо на панели. Контейнер шириной
@@ -17,7 +17,8 @@ from PySide6.QtCore import QObject, Signal
 
 from ..core.constants import (NOTES_TAB_X, NOTES_TAB_Y, RAIL_FIRST_Y,
                               RAIL_ICON_X, RAIL_LAST_Y, RAIL_PILL_H,
-                              RAIL_PILL_R, RAIL_PILL_W, TAB_BOX_H, TAB_BOX_W)
+                              RAIL_PILL_R, RAIL_PILL_W, TAB_BOX_H, TAB_BOX_W,
+                              TODO_TAB_Y)
 from ..core.scale import s
 from .widgets.buttons import IconButton
 
@@ -31,8 +32,10 @@ LEFT_TABS = (
     ("settings",  "settings",  11),
 )
 
+# У правого края две кнопки одна под другой, поэтому и координата у каждой своя.
 RIGHT_TABS = (
-    ("notes", "notes", 11),
+    ("notes", "notes",    11, NOTES_TAB_Y),
+    ("todo",  "app-rail", 11, TODO_TAB_Y),
 )
 
 
@@ -45,7 +48,7 @@ class TabBar(QObject):
         self._buttons = {}
         self._current = None
 
-        for key, icon_name, icon_px in LEFT_TABS + RIGHT_TABS:
+        for key, icon_name, icon_px in self._all_tabs():
             btn = IconButton(
                 panel,
                 icon_name=icon_name,
@@ -60,8 +63,13 @@ class TabBar(QObject):
             btn.clicked.connect(lambda k=key: self.selected.emit(k))
             self._buttons[key] = btn
 
+    @staticmethod
+    def _all_tabs():
+        return ([(key, name, px) for key, name, px in LEFT_TABS]
+                + [(key, name, px) for key, name, px, _ in RIGHT_TABS])
+
     def keys(self):
-        return [key for key, _, _ in LEFT_TABS + RIGHT_TABS]
+        return [key for key, _, _ in self._all_tabs()]
 
     def set_current(self, key):
         if key == self._current:
@@ -85,8 +93,8 @@ class TabBar(QObject):
         for i, (key, _, _) in enumerate(LEFT_TABS):
             self._place(key, RAIL_ICON_X, RAIL_FIRST_Y + i * step, w, h)
 
-        for key, _, _ in RIGHT_TABS:
-            self._place(key, NOTES_TAB_X, NOTES_TAB_Y, w, h)
+        for key, _, _, cy in RIGHT_TABS:
+            self._place(key, NOTES_TAB_X, cy, w, h)
 
     def _place(self, key, cx, cy, w, h):
         self._buttons[key].setGeometry(s(cx) - w // 2, s(cy) - h // 2, w, h)

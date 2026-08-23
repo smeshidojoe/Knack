@@ -35,6 +35,7 @@ SHELF_INDEX    = os.path.join(APP_DIR, "shelf.json")              # порядо
 CLIPBOARD_PATH = os.path.join(APP_DIR, "clipboard_history.json")  # история текста
 SNIPPETS_PATH  = os.path.join(APP_DIR, "snippets.json")           # сниппеты
 NOTES_PATH     = os.path.join(APP_DIR, "notes.json")              # заметки
+TODO_PATH      = os.path.join(APP_DIR, "todo.json")               # список задач
 TRANSLATE_DIR  = os.path.join(APP_DIR, "translate")               # модели перевода
 LOG_PATH       = os.path.join(APP_DIR, "knack.log")
 
@@ -64,6 +65,10 @@ RAIL_PILL_R   = 7
 # колонке: центр на тех же 27 px от края.
 NOTES_TAB_X   = 547
 NOTES_TAB_Y   = 90.5
+
+# TODO встал под «Заметками» тем же шагом 26 px, что и в левой колонке: рядом
+# стоящие кнопки с разным шагом читались бы как две разные группы.
+TODO_TAB_Y    = 116.5
 
 # Кликабельный бокс кнопки заметно больше подсветки: при наведении подсветка
 # растёт, а с перелётом в конце клика доходит до ~1.17 своего размера — в бокс

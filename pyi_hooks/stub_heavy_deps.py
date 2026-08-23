@@ -16,7 +16,14 @@ import sys
 import types
 from importlib.machinery import ModuleSpec
 
-_STUBS = ("torch", "transformers", "spacy", "stanza")
+# Всё это подтягивается через argostranslate и конвертеры ctranslate2, но при
+# переводе готовой моделью не работает ни одно. Проверено: перевод en->ru идёт
+# с полным набором заглушек.
+_STUBS = (
+    "torch", "transformers", "spacy", "stanza",
+    "openai", "huggingface_hub", "gradio",
+    "pandas", "scipy", "numba", "sqlalchemy", "openpyxl", "gevent",
+)
 
 
 def _stub(name):

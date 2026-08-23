@@ -4,7 +4,7 @@
 
 A sliding panel for Windows. Move the pointer to the edge of the screen and a
 strip slides out with your music, a shelf of screenshots, clipboard history,
-snippets, notes and a translator. Move away and it slides back.
+snippets, notes, a todo list and a translator. Move away and it slides back.
 
 ![Music tab](img/media.png)
 
@@ -56,9 +56,9 @@ plain indicator that ignores clicks.
 ![Shelf](img/shelf.png)
 
 Screenshots you copy land here on their own, and files can be dropped in with the
-mouse. A click puts the picture on the clipboard, the cross removes the card. A
-card can be dragged back out — into a folder, a chat, any window that takes
-files. For music and video the clipboard gets the file path, which is what chats
+mouse — drag one over the panel from any tab and the shelf opens by itself. A
+click puts the picture on the clipboard, the cross removes the card. A card can
+be dragged back out — into a folder, a chat, any window that takes files. For music and video the clipboard gets the file path, which is what chats
 paste with `Ctrl+V`.
 
 Files live in `%APPDATA%\Knack\clipboard` and survive restarts. Delete a file
@@ -94,6 +94,15 @@ The file `%APPDATA%\Knack\snippets.json` can also be edited by hand.
 
 List on the left, text on the right. The first line of a note becomes its title.
 Empty notes are cleaned up when you leave the tab.
+
+### TODO
+
+A plain checklist: one line per task. The box on the left marks a task done, a
+click on the text opens it for editing right in the row, the cross removes it.
+Done tasks stay where they are — in a short list a row jumping out from under the
+pointer is worse than sorting is useful.
+
+Empty tasks are cleaned up when you leave the tab.
 
 ### Translator
 
@@ -171,6 +180,7 @@ Everything sits in `%APPDATA%\Knack`:
 | `shelf.json`, `clipboard/` | The shelf and its files |
 | `snippets.json` | Snippets |
 | `notes.json` | Notes |
+| `todo.json` | Tasks |
 | `translate/` | Translator language models |
 | `tools/` | ffmpeg for video previews |
 | `knack.log` | Log |
@@ -217,7 +227,7 @@ iscc knack_setup.iss
 
 It installs into the folder of the current user without administrator rights,
 offers a desktop shortcut and autostart, and asks on uninstall whether to keep
-the shelf and notes.
+the shelf, notes and tasks.
 
 The offline translator is part of the build. `argostranslate` itself drags in
 spacy, stanza and torch — nearly 1.4 GB together, 1.2 GB of which is torch. None

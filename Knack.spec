@@ -64,7 +64,15 @@ _BINARIES = []
 # pyi_hooks/stub_heavy_deps.py. Проверено: перевод en->ru работает.
 BUNDLE_ARGOS = True
 
-_EXCLUDES = []
+# В окружении разработчика обычно стоят и другие привязки Qt (PyQt5, PyQt6), а
+# также matplotlib, который сам тянет их своими бэкендами. PyInstaller не умеет
+# класть в сборку два набора привязок сразу и обрывает сборку. Ничего из этого
+# нам не нужно — исключаем независимо от переводчика.
+_EXCLUDES = [
+    'PyQt5', 'PyQt6', 'PySide2', 'shiboken2',
+    'matplotlib', 'tkinter', 'IPython', 'notebook', 'pytest',
+]
+
 if BUNDLE_ARGOS:
     if not importlib.util.find_spec('argostranslate'):
         raise SystemExit(
@@ -79,10 +87,19 @@ if BUNDLE_ARGOS:
         _DATAS += _d
         _BINARIES += _b
         _HIDDEN += _h
-    _EXCLUDES += ['torch', 'torchvision', 'torchaudio', 'transformers',
-                  'spacy', 'thinc', 'stanza', 'spacy_legacy', 'spacy_loggers',
-                  'srsly', 'preshed', 'cymem', 'murmurhash', 'blis',
-                  'weasel', 'confection', 'catalogue']
+    # Всё это приезжает вместе с argostranslate и конвертерами ctranslate2, но
+    # при переводе готовой моделью не участвует. Без исключений exe весил 232 МБ.
+    _EXCLUDES += [
+        'torch', 'torchvision', 'torchaudio', 'transformers',
+        'spacy', 'thinc', 'stanza', 'spacy_legacy', 'spacy_loggers',
+        'srsly', 'preshed', 'cymem', 'murmurhash', 'blis',
+        'weasel', 'confection', 'catalogue',
+        'openai', 'huggingface_hub', 'gradio', 'gradio_client',
+        'pandas', 'scipy', 'numba', 'llvmlite', 'sqlalchemy', 'openpyxl',
+        'gevent', 'trio', 'anyio', 'httpx', 'pydantic', 'narwhals',
+        'pytz', 'tzdata', 'pygments', 'rich', 'markdown_it',
+        'joblib', 'PIL', 'setuptools', 'pkg_resources',
+    ]
 
 a = Analysis(
     ['main.py'],

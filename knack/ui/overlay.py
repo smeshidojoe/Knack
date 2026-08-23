@@ -32,6 +32,7 @@ from .pages.notes import NotesPage
 from .pages.shelf import ShelfPage
 from .pages.snippets import SnippetsPage
 from .pages.settings import SettingsPage
+from .pages.todo import TodoPage
 from .pages.translate import TranslatePage
 from .tabbar import TabBar
 from .widgets.text import Text
@@ -74,6 +75,10 @@ class Overlay(QWidget):
         )
         self.setAttribute(Qt.WA_TranslucentBackground, True)
         self.setAttribute(Qt.WA_ShowWithoutActivating, True)
+        # Файл можно бросить на панель с любой вкладки: она сама переключится
+        # на полку. Вкладка полки принимает такие события сама, до нас они
+        # доходят только с остальных.
+        self.setAcceptDrops(True)
 
         self.rail = TabBar(self)
         self.rail.selected.connect(self.set_tab)
@@ -85,6 +90,7 @@ class Overlay(QWidget):
                      ClipboardPage(services.clipboard, self),
                      SnippetsPage(services.snippets, services.clipboard, self),
                      NotesPage(services.notes, self),
+                     TodoPage(services.todo, self),
                      TranslatePage(services.translator, settings, self),
                      SettingsPage(settings, self)):
             self.pages[page.key] = page
@@ -395,6 +401,28 @@ class Overlay(QWidget):
             self._out_since = now
         elif (now - self._out_since) * 1000 >= self.settings.get("hide_delay_ms", 220):
             self.close_panel()
+
+    # --- приём брошенных файлов -------------------------------------------- #
+
+    @staticmethod
+    def _droppable(mime):
+        return bool(mime and (mime.hasUrls() or mime.hasImage()))
+
+    def dragEnterEvent(self, event):
+        if not self._droppable(event.mimeData()):
+            return
+        # Показываем, куда именно оно ляжет, ещё до того как отпустили кнопку.
+        self.set_tab("shelf")
+        event.acceptProposedAction()
+
+    def dragMoveEvent(self, event):
+        if self._droppable(event.mimeData()):
+            event.acceptProposedAction()
+
+    def dropEvent(self, event):
+        page = self.pages.get("shelf")
+        if page is not None and page.take_drop(event.mimeData()):
+            event.acceptProposedAction()
 
     # --- нативные флаги окна ---------------------------------------------- #
 

@@ -57,8 +57,8 @@ Name: "russian"; MessagesFile: "compiler:Languages\Russian.isl"
 [CustomMessages]
 english.DirNotWritable=This folder cannot be written to without administrator rights.%n%nKnack updates itself and needs write access to its own folder, so please pick another location — for example the default one.
 russian.DirNotWritable=В эту папку нельзя записывать без прав администратора.%n%nKnack обновляет себя сам и должен иметь доступ на запись в свою папку, поэтому выберите другое место — например, предложенное по умолчанию.
-english.KeepData=Keep settings, shelf and notes
-russian.KeepData=Оставить настройки, полку и заметки
+english.KeepData=Keep settings, shelf, notes and tasks
+russian.KeepData=Оставить настройки, полку, заметки и задачи
 
 [Code]
 // Проверяем, что в выбранную папку можно писать БЕЗ прав администратора.

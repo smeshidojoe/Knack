@@ -17,6 +17,7 @@ STRINGS = {
     "tab.clipboard": {"ru": "БУФЕР",      "en": "CLIPBOARD"},
     "tab.snippets":  {"ru": "СНИППЕТЫ",   "en": "SNIPPETS"},
     "tab.notes":     {"ru": "ЗАМЕТКИ",    "en": "NOTES"},
+    "tab.todo":      {"ru": "TODO",       "en": "TODO"},
     "tab.translate": {"ru": "ПЕРЕВОДЧИК", "en": "TRANSLATE"},
     "tab.settings":  {"ru": "НАСТРОЙКИ",  "en": "SETTINGS"},
 
@@ -59,6 +60,11 @@ STRINGS = {
     "snippets.value":  {"ru": "Значение", "en": "Value"},
 
     # Заметки.
+    # Вкладка TODO.
+    "todo.new":         {"ru": "Новая задача", "en": "New Task"},
+    "todo.placeholder": {"ru": "Что нужно сделать?", "en": "What needs doing?"},
+    "todo.empty":       {"ru": "Задач нет", "en": "Nothing to do"},
+
     "notes.new":         {"ru": "Новая заметка", "en": "New Note"},
     "notes.untitled":    {"ru": "Пустая заметка", "en": "Empty note"},
     "notes.placeholder": {"ru": "Запиши что-нибудь...", "en": "Jot something down..."},

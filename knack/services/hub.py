@@ -8,6 +8,7 @@ from .media import MediaService
 from .notes import NotesStore
 from .shelf import ShelfStore
 from .snippets import SnippetStore
+from .todo import TodoStore
 from .translate import Translator
 from .updates import UpdateService
 
@@ -21,6 +22,7 @@ class Services(QObject):
         self.clipboard = ClipboardService(settings, self.shelf, self)
         self.snippets = SnippetStore(self)
         self.notes = NotesStore(self)
+        self.todo = TodoStore(self)
         self.translator = Translator(settings, self)
         self.layout = LayoutSwitcher(settings, self.clipboard, self)
         self.updates = UpdateService(settings, self)
