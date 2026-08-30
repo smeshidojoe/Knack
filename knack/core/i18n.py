@@ -51,6 +51,7 @@ STRINGS = {
     "clipboard.empty": {"ru": "Скопированный текст появится здесь",
                         "en": "Copied text shows up here"},
     "clipboard.clear": {"ru": "Очистить", "en": "Clear"},
+    "shelf.clear":     {"ru": "Очистить", "en": "Clear"},
 
     # Сниппеты.
     "snippets.search": {"ru": "Поиск", "en": "Search"},

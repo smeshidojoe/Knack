@@ -18,6 +18,7 @@ from ...core.scale import s, sf
 from .. import theme
 from ..widgets.field import line_edit, restyle
 from ..widgets.listview import ListView
+from ..widgets.text import Text
 from .base import Page
 
 NEW_X, NEW_Y, NEW_W, NEW_H, NEW_R = 54, 31, 465, 22, 7
@@ -31,6 +32,7 @@ TEXT_X, TEXT_PX = 27, 10
 TEXT_RIGHT, TEXT_RIGHT_HOVER = 8, 22
 
 EMPTY_PX = 9
+COUNT_R, COUNT_Y, COUNT_H, COUNT_PX = 558, 9, 11, 9    # счётчик в правом углу
 
 # QLineEdit держит собственный отступ текста в 2 px и не отдаёт его ни стилю, ни
 # setTextMargins. Поле правки стоит на месте нарисованной строки, и без поправки
@@ -253,6 +255,7 @@ class TodoPage(Page):
         self.rows.close_requested.connect(self._remove)
 
         self.empty = _Empty(self)
+        self.count = Text(self, role="text_muted", align=Qt.AlignRight)
 
         self.editor = line_edit(self, TEXT_PX, "Medium",
                                 i18n.t("todo.placeholder"))
@@ -277,6 +280,8 @@ class TodoPage(Page):
                                s(EMPTY_PX) * 3)
 
         restyle(self.editor, TEXT_PX)
+        self.count.set_font_px(s(COUNT_PX), "Bold")
+        self.count.setGeometry(s(COUNT_R) - s(60), s(COUNT_Y), s(60), s(COUNT_H))
         self.rows.refresh()
         self._place_editor()
 
@@ -301,6 +306,8 @@ class TodoPage(Page):
         has_items = bool(self.store.items)
         self.empty.setVisible(not has_items)
         self.rows.setVisible(has_items)
+        # Сколько задач — цифрой в правом верхнем углу, как в cyclop.
+        self.count.set_text(str(len(self.store.items)) if has_items else "")
         self.rows.refresh()
 
     def _create(self):

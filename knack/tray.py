@@ -5,7 +5,7 @@ from PySide6.QtGui import QCursor, QGuiApplication, QIcon, QPainter, QPixmap
 from PySide6.QtWidgets import QSystemTrayIcon
 
 from .core import autostart, i18n, icons, systheme
-from .core.constants import APP_NAME, APP_VERSION
+from .core.constants import APP_NAME
 from .ui.menu import Menu
 
 # Размеры, которые Windows спрашивает у значка в трее при разных масштабах.
@@ -27,7 +27,7 @@ class Tray(QObject):
         self._menu = None
 
         self.icon = QSystemTrayIcon(self._icon(), parent)
-        self.icon.setToolTip("%s %s" % (APP_NAME, APP_VERSION))
+        self.icon.setToolTip(APP_NAME)
         # Контекстное меню рисуем сами (см. ui/menu.py): нативное QMenu на
         # Windows игнорирует тему приложения целиком.
         self.icon.activated.connect(self._activated)

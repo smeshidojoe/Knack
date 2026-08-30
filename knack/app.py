@@ -64,6 +64,9 @@ class KnackApp:
 
         self._install_signals()
         self.overlay.start_watching()
+        # После сборки окон: прогрев и построение интерфейса тянут один и тот же
+        # шрифтовой замок, и запущенный раньше поток задержал бы старт.
+        fonts.warm_up()
         logbook.log("%s %s запущен" % (APP_NAME, APP_VERSION))
 
     def _set_identity(self):
@@ -156,7 +159,6 @@ class KnackApp:
         if key == "language":
             i18n.set_language(self.settings.get("language"))
             self.overlay.retranslate()
-            self.tray.icon.setToolTip("%s %s" % (APP_NAME, APP_VERSION))
         elif key in ("ui_scale", "edge_gap"):
             self.overlay.reapply()
         elif key == "animation_fps":

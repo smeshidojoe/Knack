@@ -21,7 +21,7 @@ _VERSION_RES = VSVersionInfo(
     kids=[
         StringFileInfo([StringTable('040904B0', [
             StringStruct('CompanyName', 'SmeshidoJoe'),
-            StringStruct('FileDescription', 'Knack — выезжающая панель'),
+            StringStruct('FileDescription', 'Knack'),
             StringStruct('FileVersion', _APP_VERSION),
             StringStruct('InternalName', 'Knack'),
             StringStruct('LegalCopyright', '© 2026 SmeshidoJoe'),

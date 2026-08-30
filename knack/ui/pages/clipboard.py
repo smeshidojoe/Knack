@@ -113,7 +113,7 @@ class ClipboardPage(Page):
         has = bool(self.service.history)
         self.list.setVisible(has)
         self.empty.setVisible(not has)
-        self.clear.setVisible(has)
+        self.clear.set_shown(has)
         self.list.refresh()
         self.list.update()
 

@@ -1,10 +1,16 @@
 import os
+import threading
 
-from PySide6.QtGui import QFont, QFontDatabase
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QFont, QFontDatabase, QFontMetrics, QImage, QPainter
 
 from .constants import FONTS_DIR
 
 FAMILY = "SF Pro Display"
+
+# В SF Pro эмодзи нет, и на первую же цветную картинку Qt уходит перебирать
+# шрифты системы. Называем запасной шрифт сам: перебор тогда не начинается.
+EMOJI_FAMILY = "Segoe UI Emoji"
 
 # Все веса регистрируются под одним family с разными стилями.
 _FILES = (
@@ -38,6 +44,39 @@ def load():
     _cache.clear()
 
 
+# Строка с эмодзи, нарисованная первой за запуск, стоит около полусекунды: Qt
+# поднимает цветной шрифт и его таблицы. Дальше это уже бесплатно. Платим этот
+# раз в фоне на старте, иначе он выпадает на первое открытие вкладки с буфером —
+# ровно тогда, когда панель выезжает, и выезд встаёт колом.
+_WARM_SAMPLE = "😊🚀✅👨‍👩‍👧"
+_warmed = False
+
+
+def warm_up():
+    """Прогревает цветной шрифт в отдельном потоке. Зовётся один раз на старте."""
+    global _warmed
+    if _warmed:
+        return
+    _warmed = True
+    threading.Thread(target=_warm_worker, name="knack-fontwarm",
+                     daemon=True).start()
+
+
+def _warm_worker():
+    # Рисуем в QImage, а не в QPixmap: только он разрешён вне главного потока.
+    try:
+        f = font(12, "Medium")
+        image = QImage(64, 24, QImage.Format_ARGB32_Premultiplied)
+        painter = QPainter(image)
+        painter.setFont(f)
+        QFontMetrics(f).horizontalAdvance(_WARM_SAMPLE)
+        painter.drawText(image.rect(), int(Qt.AlignLeft | Qt.AlignVCenter),
+                         _WARM_SAMPLE)
+        painter.end()
+    except Exception:
+        pass
+
+
 def font(px, style="Regular", letter_spacing=0.0):
     """
     QFont нужного стиля, размер задаётся В ПИКСЕЛЯХ.
@@ -54,6 +93,7 @@ def font(px, style="Regular", letter_spacing=0.0):
         f = QFontDatabase.font(FAMILY, style, 10)
         if f.family() != FAMILY:
             f = QFont(FAMILY)
+        f.setFamilies([FAMILY, EMOJI_FAMILY])
         f.setPixelSize(px)
         if letter_spacing:
             f.setLetterSpacing(QFont.AbsoluteSpacing, letter_spacing)

@@ -68,6 +68,13 @@ class ShelfStore(QObject):
         self._rescan.timeout.connect(self._recheck)
 
         self._drop_missing(quiet=True)
+        # На старте подметаем с оглядкой: пустой список карточек означает либо
+        # честно пустую полку, либо потерянный shelf.json — а файлы в папке в
+        # этом случае ещё живые. Не различить, поэтому не трогаем.
+        if self.items or not self._shelf_files():
+            self._sweep_orphans()
+        else:
+            logbook.log("полка: индекс пуст, а файлы на месте — уборку пропускаю")
         self._sync_watch()
         self._queue_missing_thumbs()
 
@@ -386,11 +393,45 @@ class ShelfStore(QObject):
                 pass
         self._remove_thumb(item)
 
+    def _shelf_files(self):
+        try:
+            return os.listdir(SHELF_DIR)
+        except OSError:
+            return []
+
+    def _sweep_orphans(self):
+        """
+        Выметает из папки полки файлы, на которые не смотрит ни одна карточка.
+
+        Удалить файл сразу получается не всегда: пока поток дорисовывает превью,
+        Windows держит исходник открытым и os.remove тихо отказывает. А превью,
+        дописанное уже после удаления карточки, оседает в папке навсегда — по
+        имени его больше никто не ищет. Оба следа убираются здесь.
+        """
+        if not os.path.isdir(SHELF_DIR):
+            return
+        keep = set()
+        for item in self.items:
+            for name in (item.get("file"), item.get("thumb")):
+                if name:
+                    keep.add(name)
+            # Превью, которое поток ещё дописывает, в карточке пока не записано,
+            # но имя у него предсказуемое — иначе мы бы его сами и стёрли.
+            keep.add("%s_thumb.png" % self._thumb_key(item))
+        for name in self._shelf_files():
+            if name in keep:
+                continue
+            try:
+                os.remove(os.path.join(SHELF_DIR, name))
+            except OSError:
+                pass
+
     def remove(self, index):
         if not 0 <= index < len(self.items):
             return
         self._erase_files(self.items.pop(index))
         self._save()
+        self._sweep_orphans()
         self._sync_watch()
         self.changed.emit()
 
@@ -399,6 +440,7 @@ class ShelfStore(QObject):
             self._erase_files(item)
         self.items = []
         self._save()
+        self._sweep_orphans()
         self._sync_watch()
         self.changed.emit()
 

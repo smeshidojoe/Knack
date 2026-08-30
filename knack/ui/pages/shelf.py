@@ -5,7 +5,10 @@
 как есть, у медиафайла карточка со значком: копируется не файл, а путь к нему —
 так его можно вставить в чат обычным Ctrl+V.
 
-Клик по карточке кладёт содержимое в буфер, крестик в углу убирает карточку.
+Клик по карточке кладёт содержимое в буфер, крестик в углу убирает карточку,
+«Очистить» — всю полку сразу. Кнопка стоит справа сверху, а не снизу, как в
+буфере: сетка занимает высоту панели до самого низа, и внизу кнопка легла бы на
+карточки второго ряда.
 Карточку можно утащить мышью наружу — в папку, в чат, в любое окно, принимающее
 файлы: наружу уходит тот же набор данных, что и в буфер.
 """
@@ -22,6 +25,7 @@ from ...core.constants import BODY_R
 from ...core.scale import s, sf
 from ...services.shelf import KIND_IMAGE, KIND_MEDIA
 from .. import theme
+from ..widgets.controls import TextButton
 from ..widgets.flash import Flash
 from ..widgets.text import Text
 from .base import Page
@@ -36,6 +40,8 @@ THUMB_X, THUMB_Y, THUMB_W, THUMB_H, THUMB_R = 5, 6, 62, 34, 5
 CAP_X, CAP_Y, CAP_W, CAP_H, CAP_PX = 7, 45, 58.6, 20, 7
 CLOSE_BOX, CLOSE_PAD = 12, 3
 DRAG_PREVIEW = 56          # размер картинки под курсором при переносе
+
+CLEAR_R, CLEAR_Y, CLEAR_H = 558, 9, 11      # «Очистить»: правый край и верх
 
 
 class _Grid(QWidget):
@@ -286,6 +292,8 @@ class ShelfPage(Page):
         self.grid = _Grid(self, store)
         self.empty = Text(self, text=i18n.t("shelf.empty"), role="text_muted",
                           align=Qt.AlignHCenter)
+        self.clear = TextButton(self, i18n.t("shelf.clear"), flat=True)
+        self.clear.clicked.connect(store.clear)
 
         store.changed.connect(self._refresh)
         self._refresh()
@@ -298,12 +306,18 @@ class ShelfPage(Page):
         self.empty.set_font_px(s(9), "Medium")
         self.empty.setGeometry(s(GRID_X), s(GRID_Y), s(BODY_R) - s(GRID_X),
                                s(GRID_BOTTOM) - s(GRID_Y))
+
+        self.clear.restyle()
+        width = max(s(60), self.clear.width_hint())
+        height = s(CLEAR_H) + s(8)
+        self.clear.setGeometry(s(CLEAR_R) - width, s(CLEAR_Y) - s(4), width, height)
         self.grid.refresh()
 
     def _refresh(self):
         has = bool(self.store.items)
         self.grid.setVisible(has)
         self.empty.setVisible(not has)
+        self.clear.set_shown(has)
         self.grid.refresh()
 
     def copy_item(self, index):
@@ -313,6 +327,7 @@ class ShelfPage(Page):
 
     def retranslate(self):
         self.empty.set_text(i18n.t("shelf.empty"))
+        self.clear.set_label(i18n.t("shelf.clear"))
         self.grid.update()
 
     # --- перетаскивание --------------------------------------------------- #

@@ -483,25 +483,73 @@ class TextButton(_Base):
 
     flat=True — без подложки, только текст: так «Очистить» нарисовано в макете.
     Нажатие всё равно должно быть видно, поэтому кнопка поджимается и светлеет.
+
+    set_shown() вместо setVisible(): «Очистить» пропадает вместе с последней
+    строкой списка, и без этого кнопка исчезала прямо посреди отклика на своё же
+    нажатие. Сначала доигрывает нажатие, потом растворяется.
     """
 
     clicked = Signal()
 
     H, RADIUS, PAD = 20, 7, 12
     PRESS_SCALE = 0.92
+    FADE_S = 0.16
 
     def __init__(self, parent=None, label="", flat=False):
         super().__init__(parent)
         self.label = label
         self.flat = flat
         self._down = False
-        self._scale = Tween(self._on_scale, value=1.0, duration=0.10)
+        self._shown = True
+        self._fade_pending = False
+        self._scale = Tween(self._on_scale, value=1.0, duration=0.10,
+                            on_done=self._on_scale_done)
+        self._fade = Tween(self._on_fade, value=1.0, duration=self.FADE_S,
+                           on_done=self._on_fade_done)
 
     def _on_scale(self, value):
         self._press = value
         self.update()
 
+    def _on_fade(self, value):
+        self._alpha = value
+        self.update()
+
     _press = 1.0
+    _alpha = 1.0
+
+    # --- показ и уход ------------------------------------------------------ #
+
+    def set_shown(self, shown):
+        """Появляется сразу, уходит плавно и не раньше конца своей анимации."""
+        shown = bool(shown)
+        if shown == self._shown:
+            return
+        self._shown = shown
+        if shown:
+            self._fade_pending = False
+            self._fade.set(1.0)
+            self.show()
+        elif self._scale.is_running():
+            self._fade_pending = True
+        else:
+            self._begin_fade_out()
+
+    def _begin_fade_out(self):
+        self._fade_pending = False
+        if not self.isVisible():
+            self._fade.set(0.0)
+            self.hide()
+            return
+        self._fade.target(0.0, self.FADE_S)
+
+    def _on_scale_done(self):
+        if self._fade_pending:
+            self._begin_fade_out()
+
+    def _on_fade_done(self):
+        if self._fade.value <= 0.001:
+            self.hide()
 
     def set_label(self, label):
         self.label = label
@@ -511,7 +559,9 @@ class TextButton(_Base):
         return QFontMetrics(self._font).horizontalAdvance(self.label) + s(self.PAD) * 2
 
     def mousePressEvent(self, event):
-        if event.button() == Qt.LeftButton:
+        # Кнопка на исходе уже никого не ждёт: нажатие по тающему тексту
+        # выглядело бы срабатыванием, которого не будет.
+        if event.button() == Qt.LeftButton and self._shown:
             self._down = True
             self._scale.target(self.PRESS_SCALE, 0.08)
 
@@ -519,6 +569,10 @@ class TextButton(_Base):
         if event.button() != Qt.LeftButton or not self._down:
             return
         self._down = False
+        # Короткий клик мог не успеть сжать кнопку ни на кадр — тогда отклика не
+        # видно вовсе. Доигрываем его от сжатого состояния.
+        if self._scale.value > self.PRESS_SCALE:
+            self._scale.set(self.PRESS_SCALE)
         self._scale.target(1.0, 0.18, QEasingCurve.OutBack)
         if self.rect().contains(event.position().toPoint()):
             self.clicked.emit()
@@ -532,6 +586,7 @@ class TextButton(_Base):
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing, True)
         p.setRenderHint(QPainter.TextAntialiasing, True)
+        p.setOpacity(self._alpha)
 
         cx, cy = self.width() / 2, self.height() / 2
         p.translate(cx, cy)

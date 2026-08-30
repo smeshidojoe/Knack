@@ -18,6 +18,7 @@ from ...core.scale import s, sf
 from .. import theme
 from ..widgets.field import restyle, text_edit
 from ..widgets.listview import ListView
+from ..widgets.text import Text
 from .base import Page
 
 NEW_X, NEW_Y, NEW_W, NEW_H, NEW_R = 55, 31, 156, 22, 7
@@ -29,6 +30,8 @@ LIST_BOTTOM = 179
 
 EDIT_X, EDIT_Y, EDIT_W, EDIT_H, EDIT_R = 221, 31, 297, 146, 9
 EDIT_PAD_X, EDIT_PAD_Y, EDIT_PX = 9, 10, 11
+
+COUNT_R, COUNT_Y, COUNT_H, COUNT_PX = 558, 9, 11, 9    # счётчик в правом углу
 
 SAVE_DELAY_MS = 400
 
@@ -153,6 +156,8 @@ class NotesPage(Page):
         self.list.activated.connect(self._select)
         self.list.close_requested.connect(self._remove)
 
+        self.count = Text(self, role="text_muted", align=Qt.AlignRight)
+
         self.frame = _Editor(self)
         self.editor = text_edit(self, EDIT_PX, "Medium",
                                 i18n.t("notes.placeholder"))
@@ -163,8 +168,9 @@ class NotesPage(Page):
         self._save_timer.setInterval(SAVE_DELAY_MS)
         self._save_timer.timeout.connect(self._save)
 
-        store.changed.connect(self.list.update)
+        store.changed.connect(self._on_changed)
         self._select_first()
+        self._update_count()
 
     # --- геометрия -------------------------------------------------------- #
 
@@ -182,9 +188,21 @@ class NotesPage(Page):
                                 s(EDIT_W) - s(EDIT_PAD_X) * 2,
                                 s(EDIT_H) - s(EDIT_PAD_Y) * 2)
         self.editor.raise_()
+
+        self.count.set_font_px(s(COUNT_PX), "Bold")
+        self.count.setGeometry(s(COUNT_R) - s(60), s(COUNT_Y), s(60), s(COUNT_H))
         self.list.refresh()
 
     # --- поведение --------------------------------------------------------- #
+
+    def _on_changed(self):
+        self.list.update()
+        self._update_count()
+
+    def _update_count(self):
+        """Сколько заметок — цифрой в правом верхнем углу, как в cyclop."""
+        count = len(self.store.items)
+        self.count.set_text(str(count) if count else "")
 
     def _select_first(self):
         if self.store.items:

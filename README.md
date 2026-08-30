@@ -57,8 +57,9 @@ plain indicator that ignores clicks.
 
 Screenshots you copy land here on their own, and files can be dropped in with the
 mouse — drag one over the panel from any tab and the shelf opens by itself. A
-click puts the picture on the clipboard, the cross removes the card. A card can
-be dragged back out — into a folder, a chat, any window that takes files. For music and video the clipboard gets the file path, which is what chats
+click puts the picture on the clipboard, the cross removes the card, "Clear" in
+the top right empties the shelf. A card can be dragged back out — into a folder,
+a chat, any window that takes files. For music and video the clipboard gets the file path, which is what chats
 paste with `Ctrl+V`.
 
 Files live in `%APPDATA%\Knack\clipboard` and survive restarts. Delete a file
@@ -93,7 +94,8 @@ The file `%APPDATA%\Knack\snippets.json` can also be edited by hand.
 ![Notes](img/notes.png)
 
 List on the left, text on the right. The first line of a note becomes its title.
-Empty notes are cleaned up when you leave the tab.
+Empty notes are cleaned up when you leave the tab. The number in the top right
+corner is how many notes there are.
 
 ### TODO
 
@@ -102,7 +104,8 @@ click on the text opens it for editing right in the row, the cross removes it.
 Done tasks stay where they are — in a short list a row jumping out from under the
 pointer is worse than sorting is useful.
 
-Empty tasks are cleaned up when you leave the tab.
+Empty tasks are cleaned up when you leave the tab, and the number in the top
+right corner is how many there are.
 
 ### Translator
 
