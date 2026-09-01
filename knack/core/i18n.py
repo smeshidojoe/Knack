@@ -88,6 +88,8 @@ STRINGS = {
     "settings.section.translate": {"ru": "ПЕРЕВОДЧИК", "en": "TRANSLATOR"},
     "settings.section.layout":    {"ru": "ЗАМЕНА СИМВОЛОВ",
                                   "en": "CHARACTER REPLACE"},
+    "settings.section.pin":       {"ru": "ЗАКРЕПЛЕНИЕ ОКНА",
+                                  "en": "ALWAYS ON TOP"},
     "settings.section.system":    {"ru": "СИСТЕМА", "en": "SYSTEM"},
     "settings.section.tools":     {"ru": "ИНСТРУМЕНТЫ", "en": "TOOLS"},
 
@@ -145,6 +147,23 @@ STRINGS = {
     "settings.restart_needed":  {"ru": "нужен перезапуск", "en": "restart needed"},
     "settings.save":            {"ru": "Ок", "en": "OK"},
     "settings.saved":           {"ru": "Сохранено", "en": "Saved"},
+
+    "settings.pin":          {"ru": "Закреплять окно поверх других",
+                              "en": "Keep a window on top"},
+    "settings.pin.hint": {
+        "ru": "Хоткей закрепляет активное окно поверх остальных. "
+              "Повторное нажатие снимает. Окна с правами администратора "
+              "не поддаются.",
+        "en": "The shortcut keeps the active window above the others. "
+              "Press again to release. Windows running as administrator "
+              "do not respond.",
+    },
+    "settings.pin_hotkey":   {"ru": "Сочетание", "en": "Shortcut"},
+    "settings.pin_release":  {"ru": "Отпускать окна при выходе",
+                              "en": "Release windows on exit"},
+    "pin.on":                {"ru": "Окно закреплено поверх других",
+                              "en": "Window pinned on top"},
+    "pin.off":               {"ru": "Окно откреплено", "en": "Window released"},
 
     "settings.layout_switch": {"ru": "Менять раскладку выделенного",
                                "en": "Switch layout of selection"},

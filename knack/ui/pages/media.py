@@ -11,7 +11,7 @@ Figma — зато каждое число в коде совпадает с ч�
 следующего нажатия паузы.
 """
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtWidgets import QWidget
 
 from ...core import i18n
@@ -23,6 +23,7 @@ from ..widgets.buttons import IconButton
 from ..widgets.equalizer import Equalizer
 from ..widgets.seekbar import SeekBar
 from ..widgets.text import Text
+from ..widgets.volumebar import VolumeBar
 from .base import Page
 
 ART_X, ART_Y, ART_SIDE, ART_RADIUS = 54, 51, 109, 12
@@ -36,6 +37,11 @@ ICON_SKIP, ICON_PLAY = 18, 15
 # Треугольник Play легче своей правой части, и в общем боксе он выглядит
 # сдвинутым влево относительно симметричной паузы. Смещаем оптически.
 PLAY_DX = 1.0
+
+# Громкость встала справа от кнопок: в этой строке это единственное свободное
+# место, где она не спорит ни с обложкой, ни с названием трека.
+VOL_X, VOL_H = 447, 20
+VOL_POLL_MS = 400          # уровень могли сменить мимо нас, системным ползунком
 
 ROW_Y, ROW_H = 149, 11
 TIME_MIN_W, TIME_GAP = 21, 11
@@ -82,9 +88,10 @@ class _ClickArea(QWidget):
 class MediaPage(Page):
     key = "media"
 
-    def __init__(self, service, parent=None):
+    def __init__(self, service, volume=None, parent=None):
         super().__init__(parent)
         self.service = service
+        self.volume = volume
         self._art_key = None
         self._state = None
         self._ticker = Ticker(self._tick)
@@ -107,6 +114,15 @@ class MediaPage(Page):
                                icon_offset=(PLAY_DX, 0))
         self.next = IconButton(self, icon_name="next", icon_px=ICON_SKIP,
                                hover_shape="circle", hover_size=(BTN_HOVER, BTN_HOVER))
+
+        self.volume_bar = VolumeBar(self)
+        self.volume_bar.moved.connect(self._on_volume)
+        self.volume_bar.mute_clicked.connect(self._on_mute)
+        self._volume_timer = QTimer(self)
+        self._volume_timer.setInterval(VOL_POLL_MS)
+        self._volume_timer.timeout.connect(self._sync_volume)
+        # Без устройства вывода регулировать нечего — полосы тогда нет вовсе.
+        self.volume_bar.setVisible(bool(volume and volume.available()))
 
         self.time_left = Text(self, role="text_muted", align=Qt.AlignLeft)
         self.time_right = Text(self, role="text_muted", align=Qt.AlignRight)
@@ -143,6 +159,8 @@ class MediaPage(Page):
                         (self.next, s(BTN_GAP))):
             btn.setGeometry(cx + dx - box // 2, cy - box // 2, box, box)
 
+        self.volume_bar.setGeometry(s(VOL_X), s(BTN_CY) - s(VOL_H) // 2,
+                                    s(BODY_R) - s(VOL_X), s(VOL_H))
         self._layout_header()
         self._layout_progress()
 
@@ -225,6 +243,8 @@ class MediaPage(Page):
         self.source_click.setCursor(Qt.PointingHandCursor if many else Qt.ArrowCursor)
         self.source_click.setToolTip(i18n.t("media.source_switch") if many else "")
 
+        self.volume_bar.setGeometry(s(VOL_X), s(BTN_CY) - s(VOL_H) // 2,
+                                    s(BODY_R) - s(VOL_X), s(VOL_H))
         self._layout_header()
         self._layout_progress()
         self._sync_ticker()
@@ -258,6 +278,27 @@ class MediaPage(Page):
         else:
             self._ticker.stop()
 
+    # --- громкость -------------------------------------------------------- #
+
+    def _sync_volume(self):
+        if not self.volume:
+            return
+        level = self.volume.level()
+        if level is None:
+            self.volume_bar.hide()
+            return
+        self.volume_bar.set_values(level, self.volume.muted())
+
+    def _on_volume(self, value):
+        if self.volume:
+            self.volume.set_level(value)
+
+    def _on_mute(self):
+        if not self.volume:
+            return
+        self.volume.toggle_mute()
+        self._sync_volume()
+
     def _tick(self, _dt):
         state = self._state
         if state is None:
@@ -277,7 +318,11 @@ class MediaPage(Page):
     def on_show(self):
         self.service.set_active(True)
         self._sync_ticker()
+        if self.volume_bar.isVisible():
+            self._sync_volume()
+            self._volume_timer.start()
 
     def on_hide(self):
         self.service.set_active(False)
         self._ticker.stop()
+        self._volume_timer.stop()

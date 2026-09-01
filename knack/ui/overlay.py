@@ -85,7 +85,7 @@ class Overlay(QWidget):
         self.label = Text(self, role="text_muted")
 
         self.pages = {}
-        for page in (MediaPage(services.media, self),
+        for page in (MediaPage(services.media, services.volume, self),
                      ShelfPage(services.shelf, services.clipboard, self),
                      ClipboardPage(services.clipboard, self),
                      SnippetsPage(services.snippets, services.clipboard, self),

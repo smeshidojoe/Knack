@@ -32,6 +32,13 @@ def defaults():
         "layout_hotkey":           "ctrl+alt+l",
         "layout_restore_clipboard": True,
 
+        # Закрепление активного окна поверх остальных по горячей клавише.
+        "pin_enabled":       True,
+        "pin_hotkey":        "ctrl+alt+p",
+        # Отпускать закреплённые окна при выходе: иначе снять закрепление
+        # после закрытия Knack было бы нечем.
+        "pin_release_on_exit": True,
+
         "clipboard_limit":   100,          # длина истории текстового буфера
 
         # Превью кадра для видео и обложки для музыки на полке. Требует ffmpeg,

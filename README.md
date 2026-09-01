@@ -51,6 +51,10 @@ the top right switches between them.
 Not every source accepts seeking. Those that do not advertise it get the bar as a
 plain indicator that ignores clicks.
 
+Right of the transport buttons is the volume, the same level the system tray
+slider shows. Click or drag the bar, roll the wheel over it for 5% steps, click
+the speaker to mute.
+
 ### Shelf
 
 ![Shelf](img/shelf.png)
@@ -139,6 +143,7 @@ you finish typing.
 | Clipboard | History length |
 | Translator | Engine, DeepL key, models folder, language detection |
 | Character replace | On or off, shortcut, clipboard restore |
+| Always on top | On or off, shortcut, release windows on exit |
 | System | Start with Windows |
 | Tools | Update check, ffmpeg install |
 
@@ -156,12 +161,22 @@ hard-coded, so it works with whatever pair you have.
 It will not work in windows running as administrator: synthetic input from an
 ordinary program does not reach them. Punto Switcher has the same limitation.
 
+## Always on top
+
+`Ctrl+Alt+P` keeps the active window above all others, the same thing PowerToys
+does. Press it again on that window to release it. The flag lives in the window
+itself, so it holds whatever Knack is doing, and by default all pinned windows
+are released when Knack exits — there would be nothing left to unpin them with.
+
+Windows running as administrator do not respond, same as with character replace.
+
 ## Shortcuts
 
 | Keys | Action |
 |---|---|
 | `Ctrl+Alt+K` | Show or hide the panel |
 | `Ctrl+Alt+L` | Switch the layout of the selected text |
+| `Ctrl+Alt+P` | Keep the active window on top |
 
 Both can be changed in settings: click the field and press the new combination.
 

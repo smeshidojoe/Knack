@@ -34,7 +34,7 @@ PAD = 10
 
 SCROLL_W = 2
 
-FPS_OPTIONS = (0, 60, 120, 144, 180)
+FPS_OPTIONS = (0, 60, 120, 144, 165, 180)
 
 
 class _Viewport(QWidget):
@@ -275,6 +275,23 @@ class SettingsPage(Page):
         self.layout_restore_row = self._row("settings.layout_restore",
                                             self.layout_restore)
 
+        # --- закрепление окна -------------------------------------------------- #
+        self._section("settings.section.pin")
+
+        self.pin_on = Toggle(box, settings.get("pin_enabled", True))
+        self.pin_on.toggled.connect(self._on_pin_enabled)
+        self._row("settings.pin", self.pin_on, hint="settings.pin.hint")
+
+        self.pin_hotkey = HotkeyField(box, settings.get("pin_hotkey", ""))
+        self.pin_hotkey.changed.connect(lambda v: self._set("pin_hotkey", v))
+        self.pin_hotkey.capturing.connect(self.capturing.emit)
+        self.pin_hotkey_row = self._row("settings.pin_hotkey", self.pin_hotkey)
+
+        self.pin_release = Toggle(box, settings.get("pin_release_on_exit", True))
+        self.pin_release.toggled.connect(
+            lambda v: self._set("pin_release_on_exit", v))
+        self.pin_release_row = self._row("settings.pin_release", self.pin_release)
+
         # --- система --------------------------------------------------------- #
         self._section("settings.section.system")
 
@@ -428,6 +445,11 @@ class SettingsPage(Page):
         for widget in (self.layout_hotkey, self.layout_hotkey_row[0],
                        self.layout_restore, self.layout_restore_row[0]):
             widget.setVisible(layout_on)
+
+        pin_on = bool(self.settings.get("pin_enabled", True))
+        for widget in (self.pin_hotkey, self.pin_hotkey_row[0],
+                       self.pin_release, self.pin_release_row[0]):
+            widget.setVisible(pin_on)
         # Строка без видимых частей не должна занимать место в колонке.
         self._rows = [self._with_height(row) for row in self._rows]
         self.relayout()
@@ -443,6 +465,10 @@ class SettingsPage(Page):
         self._set("layout_switch_enabled", value)
         self._sync_visibility()
 
+    def _on_pin_enabled(self, value):
+        self._set("pin_enabled", value)
+        self._sync_visibility()
+
     def _with_height(self, row):
         # Видимость берём из настройки, а не из isVisible(): пока панель не
         # показана, скрытыми числятся все дочерние виджеты разом.
@@ -455,6 +481,8 @@ class SettingsPage(Page):
         elif label in (self.layout_hotkey_row[0], self.layout_restore_row[0]):
             height = ROW_H if self.settings.get("layout_switch_enabled",
                                                 True) else 0
+        elif label in (self.pin_hotkey_row[0], self.pin_release_row[0]):
+            height = ROW_H if self.settings.get("pin_enabled", True) else 0
         return (label, control, extra, height, hint)
 
     def _update_scale_label(self):

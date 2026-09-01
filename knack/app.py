@@ -119,12 +119,20 @@ class KnackApp:
             combo = self.settings.get("layout_hotkey")
             if not self.hotkeys.register("layout", combo):
                 logbook.log("хоткей раскладки", combo, "занят другой программой")
+        if self.settings.get("pin_enabled", True):
+            combo = self.settings.get("pin_hotkey")
+            if not self.hotkeys.register("pin", combo):
+                logbook.log("хоткей закрепления", combo, "занят другой программой")
 
     def _on_hotkey(self, name):
         if name == "toggle":
             self.overlay.toggle()
         elif name == "layout":
             self.services.layout.trigger()
+        elif name == "pin":
+            state = self.services.pin.toggle()
+            if state is not None:
+                self.tray.notify(i18n.t("pin.on" if state else "pin.off"))
 
     def _on_capture(self, active):
         """Пока в настройках ловят сочетание, глобальный хоткей снимаем —
@@ -164,7 +172,7 @@ class KnackApp:
         elif key == "animation_fps":
             anim.set_fps(self.settings.get("animation_fps", 0))
         elif key in ("hotkey", "trigger", "layout_hotkey",
-                     "layout_switch_enabled"):
+                     "layout_switch_enabled", "pin_hotkey", "pin_enabled"):
             self._register_hotkey()
             self.overlay.start_watching()
         elif key == "monitor":
