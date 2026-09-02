@@ -145,6 +145,7 @@ class Overlay(QWidget):
             self.label.set_text(i18n.t("tab." + page.key))
         for p in self.pages.values():
             p.retranslate()
+        self.updating.retranslate()
 
     # --- масштаб и раскладка --------------------------------------------- #
 
@@ -191,6 +192,12 @@ class Overlay(QWidget):
             self._preview = ScalePreview()
         self._preview.show_at(QRect(x, y, width, height),
                               radius=PANEL_RADIUS * factor)
+
+    def ask_update(self, title):
+        """Карточка с вопросом про найденную версию."""
+        self.updating.setGeometry(0, 0, self.width(), self.height())
+        self.updating.ask(title)
+        self.updating.raise_()
 
     def start_update(self, title):
         """Затемняет панель и показывает карточку загрузки."""
@@ -295,6 +302,11 @@ class Overlay(QWidget):
             self.opened.emit()
 
     def close_panel(self):
+        # Пока ставится обновление, панель заперта: закрыть её хоткеем, из трея
+        # или кликом мимо нельзя. Установка идёт своим ходом и заканчивается
+        # подменой exe с перезапуском — прятать её на полпути нечего.
+        if self.updating.blocking():
+            return
         if not self._open and not self.isVisible():
             return
         self._open = False
@@ -370,9 +382,10 @@ class Overlay(QWidget):
             self.open_panel()
 
     def _tick_open(self, pos):
-        # Пока идёт обновление, панель не прячем: она вот-вот подменит свой exe
-        # и перезапустится, исчезать в этот момент нельзя.
-        if self.updating.isVisible():
+        # Пока идёт установка, панель не прячем: она вот-вот подменит свой exe
+        # и перезапустится, исчезать в этот момент нельзя. Вопрос про найденную
+        # версию — не установка, его можно и переждать.
+        if self.updating.blocking():
             return
         mode = self.settings.get("hide_mode", "leave")
         if mode == "manual":

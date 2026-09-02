@@ -181,6 +181,9 @@ STRINGS = {
     "settings.percent":     {"ru": "%d%%", "en": "%d%%"},
     "update.card":          {"ru": "Обновление до %s", "en": "Updating to %s"},
     "update.card.restart":  {"ru": "Перезапускаюсь", "en": "Restarting"},
+    "update.found":         {"ru": "Есть версия %s", "en": "Version %s is out"},
+    "update.now":           {"ru": "Обновить", "en": "Update"},
+    "update.later":         {"ru": "Позже", "en": "Later"},
     "settings.ffmpeg":      {"ru": "ffmpeg для превью", "en": "ffmpeg for previews"},
     "settings.ffmpeg.hint": {"ru": "Нужен, чтобы показывать кадр видео и обложку музыки",
                              "en": "Needed to show a video frame and music cover art"},
@@ -203,6 +206,16 @@ STRINGS = {
     "update.checking":    {"ru": "Проверяю обновления…", "en": "Checking for updates…"},
     "update.current":     {"ru": "Установлена последняя версия",
                            "en": "You are on the latest version"},
+    "settings.check_updates": {"ru": "Проверять обновления",
+                               "en": "Check for updates"},
+    "settings.check_updates.hint": {
+        "ru": "Раз в два часа тихо спрашиваем у GitHub, нет ли версии новее. "
+              "Найденную предлагаем поставить один раз — «Позже» больше о ней "
+              "не напомнит.",
+        "en": "Every two hours Knack quietly asks GitHub for a newer version. "
+              "It offers the one it finds once — «Later» stops it "
+              "mentioning that version again.",
+    },
     "update.available":   {"ru": "Есть версия %s — качаю",
                            "en": "Version %s is available — downloading"},
     "update.downloading": {"ru": "Качаю обновление…", "en": "Downloading update…"},

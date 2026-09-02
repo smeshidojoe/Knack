@@ -27,6 +27,9 @@ python main.py
 Knack lives in the tray. Its icon follows the Windows theme: light on a dark
 taskbar, dark on a light one.
 
+Whatever you chose for autostart in the installer is what Knack keeps: on the
+first run it reads the registry instead of imposing its own value.
+
 ## Opening the panel
 
 | Way | How |
@@ -145,7 +148,7 @@ you finish typing.
 | Character replace | On or off, shortcut, clipboard restore |
 | Always on top | On or off, shortcut, release windows on exit |
 | System | Start with Windows |
-| Tools | Update check, ffmpeg install |
+| Tools | Automatic update checks, update now, ffmpeg install |
 
 Everything applies immediately; there is no Save button.
 
@@ -182,10 +185,25 @@ Both can be changed in settings: click the field and press the new combination.
 
 ## Updates
 
-"Check for updates" in the tray menu looks at the GitHub releases. If a newer
-version is out, the app downloads the zip, replaces its own exe and restarts. It
-only works in the built app: there is nothing to replace when running from
-source.
+Knack asks GitHub for a newer release eight seconds after it starts and every two
+hours after that. When one turns up, a card in the panel offers it: **Update**
+downloads and installs it right away, **Later** puts that version aside and does
+not bring it up again. The check can be turned off in settings.
+
+"Check for updates" in the tray menu does the same on demand and installs what it
+finds without asking.
+
+While it installs, the panel is locked: it shows a progress card and refuses to
+close, by hotkey, tray or pointer alike — the app is about to swap its own exe
+and restart, and hiding halfway through helps nobody.
+
+Installing replaces the running exe, which Windows keeps locked, so the new exe
+is unpacked next to it and started with `--apply-update`: it waits for the old
+one to quit, copies itself over it and launches it. If that exe cannot be
+started, a PowerShell helper does the same job.
+
+All of it only works in the built app: there is nothing to replace when running
+from source.
 
 ## Where the data lives
 

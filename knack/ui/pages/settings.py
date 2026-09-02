@@ -302,6 +302,12 @@ class SettingsPage(Page):
         # --- инструменты ------------------------------------------------------ #
         self._section("settings.section.tools")
 
+        self.check_updates = Toggle(box, settings.get("check_updates", True))
+        self.check_updates.toggled.connect(
+            lambda v: self._set("check_updates", v))
+        self._row("settings.check_updates", self.check_updates,
+                  hint="settings.check_updates.hint")
+
         self._update_ready = False   # найдено обновление — кнопка ставит его
         self._ffmpeg_busy = False    # идёт загрузка, при возврате не сбрасываем
         self.update_button = TextButton(box, i18n.t("settings.check"))

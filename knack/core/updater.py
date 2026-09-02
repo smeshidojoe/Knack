@@ -7,7 +7,8 @@
   3. restart_to_update() — достаём новый exe из архива, запускаем его с флагом
      --apply-update и немедленно выходим. Новый exe дожидается, пока старый
      освободит файл, подменяет его собой и запускает. Иначе никак: работающий
-     exe заблокирован и заменить себя сам не может.
+     exe заблокирован и заменить себя сам не может. Если запустить новый exe
+     не дали, ту же работу делает помощник на PowerShell.
   4. apply_pending() — страховка при старте: если zip остался лежать, распаковываем
      то, что не заблокировано.
 
@@ -195,6 +196,67 @@ def _extract_new_exe():
         return None
 
 
+def _ps_lit(path):
+    """Путь как литерал PowerShell: одинарные кавычки, внутренние — удвоением."""
+    return "'%s'" % str(path).replace("'", "''")
+
+
+def _restart_via_powershell(new_exe):
+    """
+    Запасной помощник: ждёт освобождения exe, копирует новый и запускает.
+
+    Нужен, когда запустить новый exe напрямую не дали — например, политика
+    запрещает запуск из папки _update. PowerShell есть в любой Windows.
+    """
+    log = os.path.join(UPDATE_DIR, "helper.log")
+    # Пути подставляем литералами: в них бывают кириллица и пробелы. Цикл
+    # сначала пробует удалить старый exe — это удаётся только когда процесс
+    # действительно вышел, — и лишь потом копирует новый на его место.
+    script = (
+        "$ErrorActionPreference='SilentlyContinue';\n"
+        "$old=%s; $new=%s; $log=%s;\n" % (_ps_lit(sys.executable),
+                                          _ps_lit(new_exe), _ps_lit(log)) +
+        "function L($m){ ('['+(Get-Date -Format o)+'] '+$m) |"
+        " Out-File -LiteralPath $log -Append -Encoding utf8 }\n"
+        "L('powershell helper started')\n"
+        "$gone=$false\n"
+        "for($i=0;$i -lt 200;$i++){\n"
+        "  try{ Remove-Item -LiteralPath $old -Force -ErrorAction Stop;"
+        " $gone=$true; break }\n"
+        "  catch{ Start-Sleep -Milliseconds 400 }\n"
+        "}\n"
+        "L('old removed='+$gone)\n"
+        "try{ Copy-Item -LiteralPath $new -Destination $old -Force"
+        " -ErrorAction Stop }\n"
+        "catch{ L('copy err: '+$_.Exception.Message) }\n"
+        "if(-not (Test-Path -LiteralPath $old)){"
+        " try{ Move-Item -LiteralPath $new -Destination $old -Force }catch{} }\n"
+        "Start-Process -FilePath $old\n"
+        "Remove-Item -LiteralPath $new -Force -ErrorAction SilentlyContinue\n"
+        "L('done')\n"
+    )
+    try:
+        import base64
+        os.makedirs(UPDATE_DIR, exist_ok=True)
+        # -EncodedCommand (base64 в UTF-16LE) снимает разом все вопросы с
+        # кавычками и кодировкой командной строки.
+        encoded = base64.b64encode(script.encode("utf-16-le")).decode("ascii")
+        # Полный путь к powershell.exe: на PATH не полагаемся, его правят.
+        shell = os.path.join(os.environ.get("SystemRoot", r"C:\Windows"),
+                             "System32", "WindowsPowerShell", "v1.0",
+                             "powershell.exe")
+        if not os.path.isfile(shell):
+            shell = "powershell"
+        subprocess.Popen([shell, "-NoProfile", "-ExecutionPolicy", "Bypass",
+                          "-WindowStyle", "Hidden", "-EncodedCommand", encoded],
+                         creationflags=_DETACHED, close_fds=True)
+        _log("запущен помощник PowerShell")
+        return True
+    except Exception as error:
+        _log("не удалось запустить помощника PowerShell: %s" % error)
+        return False
+
+
 def restart_to_update():
     """
     Запускает подмену и требует немедленного выхода вызывающего.
@@ -217,8 +279,8 @@ def restart_to_update():
         _log("помощник запущен: %s" % new_exe)
         return True
     except Exception as error:
-        _log("не удалось запустить помощника: %s" % error)
-        return False
+        _log("не удалось запустить помощника: %s — пробую PowerShell" % error)
+    return _restart_via_powershell(new_exe)
 
 
 def apply_self_update(target):

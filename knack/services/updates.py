@@ -27,6 +27,7 @@ class UpdateService(QObject):
         self.settings = settings
         self._busy = False
         self._latest = {}
+        self._silent = False
 
     def supported(self):
         """В режиме разработки подменять нечего — обновляемся только собранными."""
@@ -37,11 +38,17 @@ class UpdateService(QObject):
 
     # --- проверка ------------------------------------------------------------ #
 
-    def check(self, then_install=False):
+    def silent(self):
+        """Последняя проверка была фоновой: о «всё свежее» сообщать не надо."""
+        return self._silent
+
+    def check(self, then_install=False, silent=False):
         if self._busy:
             return
         self._busy = True
-        self.state.emit("checking", "")
+        self._silent = silent
+        if not silent:
+            self.state.emit("checking", "")
         threading.Thread(target=self._check_worker, args=(then_install,),
                          name="knack-update", daemon=True).start()
 

@@ -9,13 +9,16 @@ from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QGuiApplication, QIcon
 from PySide6.QtWidgets import QApplication
 
-from .core import autostart, config, fonts, i18n, icons, logbook
+from .core import autostart, config, fonts, i18n, icons, logbook, updater
 from .core.constants import APP_ICO, APP_ID, APP_NAME, APP_VERSION
 from .core.hotkey import HotkeyManager
 from .services.hub import Services
 from .tray import Tray
 from .ui import anim, theme
 from .ui.overlay import Overlay
+
+UPDATE_FIRST_MS = 8000                  # первая тихая проверка после старта
+UPDATE_WATCH_MS = 2 * 60 * 60 * 1000    # и дальше раз в два часа
 
 
 class KnackApp:
@@ -28,7 +31,13 @@ class KnackApp:
         self._set_identity()
         self.qt.setQuitOnLastWindowClosed(False)
 
+        had_config = os.path.isfile(config.CONFIG_PATH)
         self.settings = config.load()
+        if not had_config:
+            # Первый запуск: галочку автозапуска мог поставить (или снять)
+            # установщик. Реестр тут — источник истины, иначе синхронизация ниже
+            # затёрла бы выбор, сделанный в мастере.
+            self.settings["autostart"] = autostart.is_enabled()
         fonts.load()
         i18n.set_language(self.settings.get("language"))
         theme.apply(self.settings.get("theme"))
@@ -39,6 +48,9 @@ class KnackApp:
         self.overlay = Overlay(self.settings, self.services)
         self.overlay.setting_changed.connect(self._on_setting)
         self.overlay.hotkey_capture.connect(self._on_capture)
+        self.overlay.updating.accepted.connect(self._install_update)
+        self.overlay.updating.dismissed.connect(self._dismiss_update)
+        self.overlay.opened.connect(self._show_pending_update)
 
         self.hotkeys = HotkeyManager(self.qt)
         self.hotkeys.install(self.qt)
@@ -56,11 +68,17 @@ class KnackApp:
         self.services.shelf.ffmpeg_progress.connect(self._on_ffmpeg_progress)
         self.services.updates.progress.connect(self._on_update_progress)
 
+        # Настройка — источник истины: путь к exe переписываем на каждом старте,
+        # иначе после переустановки в другую папку автозапуск указывал бы в
+        # пустоту, а выключенный — оставался бы висеть от прошлой установки.
         autostart.set_enabled(self.settings.get("autostart", True))
 
         missing = icons.missing()
         if missing:
             logbook.log("иконки не найдены:", ", ".join(missing))
+
+        self._pending_update = ""    # найденная фоном версия, о которой спросим
+        self._start_update_watch()
 
         self._install_signals()
         self.overlay.start_watching()
@@ -179,6 +197,50 @@ class KnackApp:
             self.overlay.reapply()
         config.save(self.settings)
 
+    # --- обновления ------------------------------------------------------- #
+
+    def _start_update_watch(self):
+        """Тихая проверка: первая через 8 секунд после старта, дальше раз в два
+        часа. Один запрос к GitHub в фоновом потоке — нагрузки никакой."""
+        if not self.services.updates.supported():
+            return
+        self._update_timer = QTimer(self.qt)
+        self._update_timer.setInterval(UPDATE_WATCH_MS)
+        self._update_timer.timeout.connect(self._check_update_bg)
+        self._update_timer.start()
+        QTimer.singleShot(UPDATE_FIRST_MS, self._check_update_bg)
+
+    def _check_update_bg(self):
+        if self.settings.get("check_updates", True):
+            self.services.updates.check(silent=True)
+
+    def _show_pending_update(self):
+        """Спрашиваем, когда панель на виду: карточка живёт внутри неё."""
+        if not self._pending_update or self.overlay.updating.isVisible():
+            return
+        self.overlay.ask_update(i18n.t("update.found") % self._pending_update)
+
+    def _show_update_card(self, version):
+        """Открывает панель с карточкой установки, если её ещё нет."""
+        if self.overlay.updating.blocking():
+            return
+        if not self.overlay.is_open():
+            self.overlay.open_panel()
+        self.overlay.start_update(i18n.t("update.card") % version)
+
+    def _install_update(self):
+        version = self._pending_update or self.services.updates.latest_version()
+        self._pending_update = ""
+        self._show_update_card(version)
+        self.services.updates.install()
+
+    def _dismiss_update(self):
+        """«Позже»: об этой версии больше не напоминаем."""
+        if self._pending_update:
+            self.settings["update_dismissed_version"] = self._pending_update
+            config.save(self.settings)
+        self._pending_update = ""
+
     def _check_update(self):
         """Пункт меню в трее: проверить и, если есть, сразу поставить."""
         if not self.services.updates.supported():
@@ -218,15 +280,32 @@ class KnackApp:
                 "current": i18n.t("settings.done"),
                 "error": i18n.t("settings.failed"),
             }.get(key, ""))
+        if key == "downloading":
+            # Загрузку могли начать из трея, минуя кнопку в настройках. Панель
+            # тогда открываем сами: пока идёт установка, она заперта и показывает
+            # прогресс — иначе обновление шло бы вслепую.
+            self._show_update_card(version)
+
+        silent = self.services.updates.silent()
         if key == "available":
             self._update_version = version
             if page is not None:
                 page.set_update_status("", ready=True)
-            self.tray.notify(i18n.t("update.available") % version)
+            if not silent:
+                self.tray.notify(i18n.t("update.available") % version)
+                return
+            if version == self.settings.get("update_dismissed_version"):
+                return          # об этой версии уже спрашивали, ответили «позже»
+            self._pending_update = version
+            self.tray.notify(i18n.t("update.found") % version)
+            if self.overlay.is_open():
+                self._show_pending_update()
         elif key == "current":
-            self.tray.notify(i18n.t("update.current"))
+            if not silent:
+                self.tray.notify(i18n.t("update.current"))
         elif key == "error":
-            self.tray.notify(i18n.t("update.error"))
+            if not silent:
+                self.tray.notify(i18n.t("update.error"))
         elif key == "ready":
             self.overlay.update_progress(1.0, i18n.t("update.card.restart"))
             self.tray.notify(i18n.t("update.ready"))

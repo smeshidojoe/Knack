@@ -18,7 +18,7 @@
 #define MyAppUrl "https://github.com/SmeshidoJoe/Knack"
 
 [Setup]
-AppId={{359AA92A-4D8D-42B0-B83C-6D4F020B1795}
+AppId={{359AA92A-4D8D-42B0-B83C-6D4F020B1795}}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppPublisher={#MyAppPublisher}
