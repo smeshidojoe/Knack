@@ -28,6 +28,7 @@ class UpdateService(QObject):
         self._busy = False
         self._latest = {}
         self._silent = False
+        self._installing = False
 
     def supported(self):
         """В режиме разработки подменять нечего — обновляемся только собранными."""
@@ -71,15 +72,28 @@ class UpdateService(QObject):
         else:
             logbook.log("обновление: не удалось проверить —", result.get("error"))
             self.state.emit("error", "")
+        # Досюда доходим, только если установка не началась: путь загрузки
+        # выходит раньше. Значит, замок снимаем в любом случае.
+        self._installing = False
         self._busy = False
 
     # --- установка ------------------------------------------------------------ #
 
+    def installing(self):
+        """Установка уже идёт: второй раз запускать нечего."""
+        return self._installing
+
     def install(self):
         """Качает найденное обновление и перезапускается в него."""
+        # Установку могли позвать и с плашки, и кнопкой в настройках, и из трея.
+        # Второй запуск скачал бы тот же архив поверх качающегося.
+        if self._installing:
+            return
         if self._busy or self._latest.get("status") != "available":
+            self._installing = True
             self.check(then_install=True)
             return
+        self._installing = True
         self._busy = True
         threading.Thread(target=self._download_worker, args=(self._latest,),
                          name="knack-update", daemon=True).start()
@@ -94,6 +108,7 @@ class UpdateService(QObject):
             logbook.exc("update download")
             self.state.emit("error", version)
             self._busy = False
+            self._installing = False
             return
         self._busy = False
         self.state.emit("ready", version)

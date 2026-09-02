@@ -2,6 +2,7 @@
 
 from PySide6.QtCore import QObject
 
+from .audio import AudioSessions
 from .clipboard import ClipboardService
 from .layout import LayoutSwitcher
 from .media import MediaService
@@ -29,6 +30,7 @@ class Services(QObject):
         self.layout = LayoutSwitcher(settings, self.clipboard, self)
         self.pin = PinService(self)
         self.volume = VolumeService(self)
+        self.audio = AudioSessions(self)
         self.updates = UpdateService(settings, self)
 
     def start(self):
@@ -40,4 +42,5 @@ class Services(QObject):
             self.pin.release_all()
         self.media.stop()
         self.volume.shutdown()
+        self.audio.shutdown()
         self.shelf.shutdown()

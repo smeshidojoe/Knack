@@ -54,8 +54,15 @@ the top right switches between them.
 Not every source accepts seeking. Those that do not advertise it get the bar as a
 plain indicator that ignores clicks.
 
-Right of the transport buttons is the volume, the same level the system tray
-slider shows. Click or drag the bar, roll the wheel over it for 5% steps, click
+Not every player publishes a media session either — ads, short clips and some
+Chromium builds play without one. When that happens the tab falls back to the
+audio sessions: it shows which app is making sound and the title of its window,
+which in a browser is the tab title. There is nothing to control that way, so
+the transport buttons and the seek bar step aside, and the volume slider moves
+that app's own volume instead of the system one.
+
+Under the cover art sits the volume, the same level the system tray slider
+shows. Click or drag the bar, roll the wheel over it for 5% steps, click
 the speaker to mute.
 
 ### Shelf
@@ -146,7 +153,7 @@ you finish typing.
 | Clipboard | History length |
 | Translator | Engine, DeepL key, models folder, language detection |
 | Character replace | On or off, shortcut, clipboard restore |
-| Always on top | On or off, shortcut, release windows on exit |
+| Always on top | On or off, shortcut, corner badge, release windows on exit |
 | System | Start with Windows |
 | Tools | Automatic update checks, update now, ffmpeg install |
 
@@ -171,7 +178,13 @@ does. Press it again on that window to release it. The flag lives in the window
 itself, so it holds whatever Knack is doing, and by default all pinned windows
 are released when Knack exits — there would be nothing left to unpin them with.
 
-Windows running as administrator do not respond, same as with character replace.
+A thumbtack badge rides in the top right corner of the active window, next to
+the caption buttons: click it to pin, click again to release, and a struck-
+through tack means the window is pinned. It can be switched off in settings.
+
+The desktop, the taskbar and other shell windows are skipped: pinning those
+would cover the screen with them. Windows running as administrator do not
+respond, same as with character replace.
 
 ## Shortcuts
 
@@ -186,12 +199,18 @@ Both can be changed in settings: click the field and press the new combination.
 ## Updates
 
 Knack asks GitHub for a newer release eight seconds after it starts and every two
-hours after that. When one turns up, a card in the panel offers it: **Update**
-downloads and installs it right away, **Later** puts that version aside and does
-not bring it up again. The check can be turned off in settings.
+hours after that. When one turns up, a small card appears in the corner of the
+screen and stays there until you touch it — Windows swallows system notifications
+often enough (Focus Assist, muted apps, full screen) that the one message about a
+new version would go missing. Click it and the panel slides out, settings open,
+the column scrolls down to the update row and the progress card takes over.
+The cross on the card puts that version aside and does not bring it up again.
+
+If the panel is open when the version is found, the same offer appears inside it:
+**Update** installs right away, **Later** puts the version aside.
 
 "Check for updates" in the tray menu does the same on demand and installs what it
-finds without asking.
+finds without asking. Whichever way it starts, only one update runs at a time.
 
 While it installs, the panel is locked: it shows a progress card and refuses to
 close, by hotkey, tray or pointer alike — the app is about to swap its own exe

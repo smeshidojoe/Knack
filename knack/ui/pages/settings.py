@@ -12,7 +12,7 @@
 
 import os
 
-from PySide6.QtCore import QRectF, Qt, Signal
+from PySide6.QtCore import QEasingCurve, QRectF, Qt, Signal
 from PySide6.QtGui import QFontMetrics, QPainter
 from PySide6.QtWidgets import QFileDialog, QWidget
 
@@ -20,6 +20,7 @@ from ...core import autostart, fonts, i18n
 from ...core.constants import APP_VERSION, BODY_R, TRANSLATE_DIR
 from ...core.scale import s, sf
 from .. import theme
+from ..anim import Tween
 from ..widgets.controls import (HotkeyField, Segmented, Slider, Stepper,
                                 TextButton, Toggle)
 from ..widgets.field import line_edit, restyle
@@ -46,6 +47,7 @@ class _Viewport(QWidget):
         self.content.setAttribute(Qt.WA_TranslucentBackground, True)
         self._offset = 0
         self._height = 0
+        self._slide = Tween(self._on_slide, value=0.0, duration=0.32)
 
     def set_content_height(self, height):
         self._height = height
@@ -63,7 +65,18 @@ class _Viewport(QWidget):
     def wheelEvent(self, event):
         if self.max_offset() <= 0:
             return
+        self._slide.stop()      # колесо перехватывает управление у анимации
         self._offset -= event.angleDelta().y() * s(ROW_H) // 120
+        self._clamp()
+
+    def slide_to(self, offset):
+        """Плавно доехать до нужного места — колонку показывают со стороны."""
+        target = max(0, min(int(offset), self.max_offset()))
+        self._slide.set(float(self._offset))
+        self._slide.target(float(target), 0.32, QEasingCurve.OutCubic)
+
+    def _on_slide(self, value):
+        self._offset = int(round(value))
         self._clamp()
 
     def paintEvent(self, _event):
@@ -287,6 +300,11 @@ class SettingsPage(Page):
         self.pin_hotkey.capturing.connect(self.capturing.emit)
         self.pin_hotkey_row = self._row("settings.pin_hotkey", self.pin_hotkey)
 
+        self.pin_badge = Toggle(box, settings.get("pin_badge", True))
+        self.pin_badge.toggled.connect(lambda v: self._set("pin_badge", v))
+        self.pin_badge_row = self._row("settings.pin_badge", self.pin_badge,
+                                       hint="settings.pin_badge.hint")
+
         self.pin_release = Toggle(box, settings.get("pin_release_on_exit", True))
         self.pin_release.toggled.connect(
             lambda v: self._set("pin_release_on_exit", v))
@@ -405,6 +423,32 @@ class SettingsPage(Page):
     def _on_update_button(self):
         self.changed.emit("install_update" if self._update_ready else "check_update")
 
+    def reveal_update_row(self):
+        """
+        Прокрутить колонку к строке обновления.
+
+        Зовётся, когда обновление начали снаружи — с плашки в углу экрана: иначе
+        человек попадал бы в настройки на том месте, где закрыл их прошлый раз.
+        """
+        for label, control, _extra, height, _hint in self._rows:
+            if control is self.update_button and height:
+                self.view.slide_to(label.y() - s(ROW_H))
+                return
+
+    def _refit(self, control):
+        """
+        Подпись на кнопке сменилась — пересчитать ширину строки.
+
+        Ширину контролов считает relayout, и без пересчёта кнопка оставалась в
+        старых границах: «Проверить» уступало место «Проверяю обновления…», и
+        текст обрезался. Дёргаем раскладку только когда ширина правда разошлась,
+        иначе на каждый процент загрузки пересобиралась бы вся колонка.
+        """
+        if not hasattr(control, "width_hint"):
+            return
+        if abs(control.width() - int(control.width_hint())) > s(2):
+            self.relayout()
+
     def set_update_status(self, text, ready=None):
         """Показывает ход обновления прямо на кнопке."""
         if ready is not None:
@@ -412,11 +456,13 @@ class SettingsPage(Page):
         default = i18n.t("settings.install" if self._update_ready
                          else "settings.check")
         self.update_button.set_label(text or default)
+        self._refit(self.update_button)
 
     def set_ffmpeg_status(self, text, busy=None):
         if busy is not None:
             self._ffmpeg_busy = busy
         self.ffmpeg_button.set_label(text or self._ffmpeg_label())
+        self._refit(self.ffmpeg_button)
 
     def _models_label(self):
         return i18n.t("settings.choose")
@@ -454,6 +500,7 @@ class SettingsPage(Page):
 
         pin_on = bool(self.settings.get("pin_enabled", True))
         for widget in (self.pin_hotkey, self.pin_hotkey_row[0],
+                       self.pin_badge, self.pin_badge_row[0],
                        self.pin_release, self.pin_release_row[0]):
             widget.setVisible(pin_on)
         # Строка без видимых частей не должна занимать место в колонке.
@@ -487,7 +534,8 @@ class SettingsPage(Page):
         elif label in (self.layout_hotkey_row[0], self.layout_restore_row[0]):
             height = ROW_H if self.settings.get("layout_switch_enabled",
                                                 True) else 0
-        elif label in (self.pin_hotkey_row[0], self.pin_release_row[0]):
+        elif label in (self.pin_hotkey_row[0], self.pin_badge_row[0],
+                       self.pin_release_row[0]):
             height = ROW_H if self.settings.get("pin_enabled", True) else 0
         return (label, control, extra, height, hint)
 
@@ -562,6 +610,7 @@ class SettingsPage(Page):
 
     def on_show(self):
         self.key_button.set_label(i18n.t("settings.save"))
+        self._refit(self.key_button)
         # Загрузка идёт фоном и не прерывается закрытием панели — вернувшись,
         # человек должен увидеть текущий процент, а не «Скачать».
         if not self._ffmpeg_busy:

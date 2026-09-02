@@ -60,6 +60,19 @@ def _method(ptr, index, *argtypes):
     return proto(table[index])
 
 
+def ensure_com():
+    """
+    Инициализирует COM в текущем потоке. Зовут все, кто ходит в аудио-API.
+
+    RPC_E_CHANGED_MODE значит, что поток уже в другой модели — не помеха: COM в
+    нём инициализирован, вызовы пройдут.
+    """
+    hr = ole32.CoInitializeEx(None, COINIT_APARTMENTTHREADED)
+    if hr < 0 and hr != RPC_E_CHANGED_MODE:
+        raise OSError("CoInitializeEx 0x%08X" % (hr & 0xFFFFFFFF))
+    return True
+
+
 def _release(ptr):
     if ptr:
         _method(ptr, IUNKNOWN_RELEASE)(ptr)
@@ -83,12 +96,7 @@ class VolumeService(QObject):
         if self._volume or self._broken:
             return self._volume
         try:
-            hr = ole32.CoInitializeEx(None, COINIT_APARTMENTTHREADED)
-            # RPC_E_CHANGED_MODE: поток уже в другой модели — это не помеха,
-            # COM в нём инициализирован, а значит вызовы пройдут.
-            if hr < 0 and hr != RPC_E_CHANGED_MODE:
-                raise OSError("CoInitializeEx 0x%08X" % (hr & 0xFFFFFFFF))
-
+            ensure_com()
             enumerator = c_void_p()
             hr = ole32.CoCreateInstance(byref(GUID(CLSID_MMDeviceEnumerator)),
                                         None, CLSCTX_ALL,

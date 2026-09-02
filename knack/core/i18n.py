@@ -24,6 +24,7 @@ STRINGS = {
     # Вкладка «Музыка».
     "media.idle":     {"ru": "Ничего не играет", "en": "Nothing is playing"},
     "media.untitled": {"ru": "Без названия",     "en": "Untitled"},
+    "media.sounding": {"ru": "Звучит", "en": "Making sound"},
     "media.source_switch": {
         "ru": "Нажми, чтобы переключить источник звука",
         "en": "Click to switch the audio source",
@@ -159,12 +160,16 @@ STRINGS = {
               "do not respond.",
     },
     "settings.pin_hotkey":   {"ru": "Сочетание", "en": "Shortcut"},
+    "settings.pin_badge":    {"ru": "Значок в углу окна",
+                              "en": "Badge in the window corner"},
+    "settings.pin_badge.hint": {
+        "ru": "Кнопка с канцелярской кнопкой в правом верхнем углу активного "
+              "окна. Клик закрепляет, перечёркнутый значок — окно закреплено.",
+        "en": "A thumbtack button in the top right corner of the active window. "
+              "Click to pin; a struck-through tack means the window is pinned.",
+    },
     "settings.pin_release":  {"ru": "Отпускать окна при выходе",
                               "en": "Release windows on exit"},
-    "pin.on":                {"ru": "Окно закреплено поверх других",
-                              "en": "Window pinned on top"},
-    "pin.off":               {"ru": "Окно откреплено", "en": "Window released"},
-
     "settings.layout_switch": {"ru": "Менять раскладку выделенного",
                                "en": "Switch layout of selection"},
     "settings.layout_switch.hint": {
@@ -183,6 +188,8 @@ STRINGS = {
     "update.card.restart":  {"ru": "Перезапускаюсь", "en": "Restarting"},
     "update.found":         {"ru": "Есть версия %s", "en": "Version %s is out"},
     "update.now":           {"ru": "Обновить", "en": "Update"},
+    "update.toast.hint":    {"ru": "Нажми, чтобы обновить",
+                             "en": "Click to update"},
     "update.later":         {"ru": "Позже", "en": "Later"},
     "settings.ffmpeg":      {"ru": "ffmpeg для превью", "en": "ffmpeg for previews"},
     "settings.ffmpeg.hint": {"ru": "Нужен, чтобы показывать кадр видео и обложку музыки",

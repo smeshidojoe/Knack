@@ -38,10 +38,11 @@ ICON_SKIP, ICON_PLAY = 18, 15
 # сдвинутым влево относительно симметричной паузы. Смещаем оптически.
 PLAY_DX = 1.0
 
-# Громкость встала справа от кнопок: в этой строке это единственное свободное
-# место, где она не спорит ни с обложкой, ни с названием трека.
-VOL_X, VOL_H = 447, 20
+# Громкость живёт под обложкой: строка управления остаётся нетронутой, а полоса
+# получает всю ширину обложки и не жмётся к иконкам правого рейла.
+VOL_X, VOL_CY, VOL_W, VOL_H = 54, 176, 109, 20
 VOL_POLL_MS = 400          # уровень могли сменить мимо нас, системным ползунком
+AUDIO_POLL_MS = 1000       # запасной опрос «кто шумит»: он дороже, чем громкость
 
 ROW_Y, ROW_H = 149, 11
 TIME_MIN_W, TIME_GAP = 21, 11
@@ -88,10 +89,12 @@ class _ClickArea(QWidget):
 class MediaPage(Page):
     key = "media"
 
-    def __init__(self, service, volume=None, parent=None):
+    def __init__(self, service, volume=None, audio=None, parent=None):
         super().__init__(parent)
         self.service = service
         self.volume = volume
+        self.audio = audio
+        self._sounding = None      # запасной режим: кто звучит мимо SMTC
         self._art_key = None
         self._state = None
         self._ticker = Ticker(self._tick)
@@ -121,6 +124,9 @@ class MediaPage(Page):
         self._volume_timer = QTimer(self)
         self._volume_timer.setInterval(VOL_POLL_MS)
         self._volume_timer.timeout.connect(self._sync_volume)
+        self._audio_timer = QTimer(self)
+        self._audio_timer.setInterval(AUDIO_POLL_MS)
+        self._audio_timer.timeout.connect(self._sync_sounding)
         # Без устройства вывода регулировать нечего — полосы тогда нет вовсе.
         self.volume_bar.setVisible(bool(volume and volume.available()))
 
@@ -159,8 +165,8 @@ class MediaPage(Page):
                         (self.next, s(BTN_GAP))):
             btn.setGeometry(cx + dx - box // 2, cy - box // 2, box, box)
 
-        self.volume_bar.setGeometry(s(VOL_X), s(BTN_CY) - s(VOL_H) // 2,
-                                    s(BODY_R) - s(VOL_X), s(VOL_H))
+        self.volume_bar.setGeometry(s(VOL_X), s(VOL_CY) - s(VOL_H) // 2,
+                                    s(VOL_W), s(VOL_H))
         self._layout_header()
         self._layout_progress()
 
@@ -200,14 +206,23 @@ class MediaPage(Page):
 
     # --- данные ---------------------------------------------------------- #
 
-    def apply_state(self, state):
+    def apply_state(self, state, probe=True):
         self._state = state
         playing = bool(state and state.playing)
 
         if state is None:
-            self.title_text.set_text(i18n.t("media.idle"))
-            self.subtitle.set_text("")
-            self.source.set_text("")
+            # SMTC молчит — спрашиваем аудиосессии: может, звук всё-таки идёт.
+            if probe:
+                self._sounding = self._probe_sounding()
+            if self._sounding is not None:
+                self.title_text.set_text(self._sounding.title
+                                         or self._sounding.label)
+                self.subtitle.set_text(i18n.t("media.sounding"))
+                self.source.set_text(self._sounding.label)
+            else:
+                self.title_text.set_text(i18n.t("media.idle"))
+                self.subtitle.set_text("")
+                self.source.set_text("")
             if self._art_key is not None:
                 self._art_key = None
                 self.art.set_image(None)
@@ -215,6 +230,7 @@ class MediaPage(Page):
             self.time_left.set_text("")
             self.time_right.set_text("")
         else:
+            self._sounding = None       # SMTC заговорил, запасной путь не нужен
             self.title_text.set_text(state.title or i18n.t("media.untitled"))
             self.subtitle.set_text(state.subtitle())
             self.source.set_text(state.app_name)
@@ -225,9 +241,14 @@ class MediaPage(Page):
             self.time_left.set_text(format_time(self._display_position()))
             self.time_right.set_text(format_time(state.duration))
 
+        # В запасном режиме управлять нечем: кнопки и полоса перемотки без SMTC
+        # никуда не ведут. Гасим их, как при пустом SMTC, — прятать не нужно,
+        # пустая строка на месте кнопок читается хуже, чем неактивные кнопки.
+        fallback = state is None and self._sounding is not None
+
         self.play.set_icon("pause" if playing else "play")
-        self.equalizer.set_playing(playing)
-        self.equalizer.setVisible(bool(state and state.app_name))
+        self.equalizer.set_playing(playing or fallback)
+        self.equalizer.setVisible(bool(state and state.app_name) or fallback)
 
         self.prev.setEnabled(bool(state and state.can_prev))
         self.next.setEnabled(bool(state and state.can_next))
@@ -243,8 +264,6 @@ class MediaPage(Page):
         self.source_click.setCursor(Qt.PointingHandCursor if many else Qt.ArrowCursor)
         self.source_click.setToolTip(i18n.t("media.source_switch") if many else "")
 
-        self.volume_bar.setGeometry(s(VOL_X), s(BTN_CY) - s(VOL_H) // 2,
-                                    s(BODY_R) - s(VOL_X), s(VOL_H))
         self._layout_header()
         self._layout_progress()
         self._sync_ticker()
@@ -278,22 +297,72 @@ class MediaPage(Page):
         else:
             self._ticker.stop()
 
+    # --- запасной режим ---------------------------------------------------- #
+
+    def _probe_sounding(self):
+        """
+        Кто выводит звук, когда SMTC ничего не отдаёт.
+
+        Опрос стоит несколько миллисекунд, поэтому спрашиваем только пока
+        вкладка на виду: закрытой панели эти сведения ни к чему.
+        """
+        if self.audio is None or not self.isVisible():
+            return self._sounding
+        try:
+            return self.audio.playing()
+        except Exception:
+            return None
+
+    def _sync_sounding(self):
+        """Опрос по таймеру: приложение могло смениться или замолчать."""
+        if self._state is not None:
+            return
+        before = self._sounding.key() if self._sounding else ""
+        found = self._probe_sounding()
+        after = found.key() if found else ""
+        if before == after:
+            return
+        self._sounding = found
+        self.apply_state(None, probe=False)
+        self._layout_header()
+        self._sync_volume()
+
     # --- громкость -------------------------------------------------------- #
 
     def _sync_volume(self):
+        """
+        В обычном режиме ползунок двигает общий уровень, в запасном — громкость
+        того приложения, что звучит: раз уж мы показываем именно его, логично и
+        крутить именно его.
+        """
+        if self._sounding is not None and self.audio is not None:
+            level = self.audio.level(self._sounding.pid)
+            if level is not None:
+                self.volume_bar.show()
+                self.volume_bar.set_values(level, self.audio.muted(self._sounding.pid))
+                return
         if not self.volume:
             return
         level = self.volume.level()
         if level is None:
             self.volume_bar.hide()
             return
+        self.volume_bar.show()
         self.volume_bar.set_values(level, self.volume.muted())
 
     def _on_volume(self, value):
+        if self._sounding is not None and self.audio is not None:
+            if self.audio.set_level(self._sounding.pid, value):
+                return
         if self.volume:
             self.volume.set_level(value)
 
     def _on_mute(self):
+        if self._sounding is not None and self.audio is not None:
+            pid = self._sounding.pid
+            if self.audio.set_muted(pid, not self.audio.muted(pid)):
+                self._sync_volume()
+                return
         if not self.volume:
             return
         self.volume.toggle_mute()
@@ -318,11 +387,13 @@ class MediaPage(Page):
     def on_show(self):
         self.service.set_active(True)
         self._sync_ticker()
-        if self.volume_bar.isVisible():
-            self._sync_volume()
-            self._volume_timer.start()
+        self._sync_sounding()
+        self._sync_volume()
+        self._volume_timer.start()
+        self._audio_timer.start()
 
     def on_hide(self):
         self.service.set_active(False)
         self._ticker.stop()
         self._volume_timer.stop()
+        self._audio_timer.stop()

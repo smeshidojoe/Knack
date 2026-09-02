@@ -16,7 +16,11 @@ from .services.hub import Services
 from .tray import Tray
 from .ui import anim, theme
 from .ui.overlay import Overlay
+from .ui.pin_badge import PinBadge
+from .ui.toast import Toast
 
+UPDATE_REVEAL_MS = 420                  # пока панель выезжает и колонка едет
+TOAST_MS = 4000                         # сколько висит короткое сообщение
 UPDATE_FIRST_MS = 8000                  # первая тихая проверка после старта
 UPDATE_WATCH_MS = 2 * 60 * 60 * 1000    # и дальше раз в два часа
 
@@ -76,6 +80,14 @@ class KnackApp:
         missing = icons.missing()
         if missing:
             logbook.log("иконки не найдены:", ", ".join(missing))
+
+        self.toast = Toast()
+        self.toast.clicked.connect(self._on_toast_click)
+        self.toast.dismissed.connect(self._dismiss_update)
+
+        self.pin_badge = PinBadge(self.services.pin)
+        self.pin_badge.clicked.connect(self._on_badge_click)
+        self._sync_pin_badge()
 
         self._pending_update = ""    # найденная фоном версия, о которой спросим
         self._start_update_watch()
@@ -148,9 +160,9 @@ class KnackApp:
         elif name == "layout":
             self.services.layout.trigger()
         elif name == "pin":
-            state = self.services.pin.toggle()
-            if state is not None:
-                self.tray.notify(i18n.t("pin.on" if state else "pin.off"))
+            # Молча: состояние видно по значку в углу окна, а всплывающее
+            # уведомление на каждое нажатие только мешает.
+            self.services.pin.toggle()
 
     def _on_capture(self, active):
         """Пока в настройках ловят сочетание, глобальный хоткей снимаем —
@@ -192,10 +204,25 @@ class KnackApp:
         elif key in ("hotkey", "trigger", "layout_hotkey",
                      "layout_switch_enabled", "pin_hotkey", "pin_enabled"):
             self._register_hotkey()
+            self._sync_pin_badge()
             self.overlay.start_watching()
+        elif key == "pin_badge":
+            self._sync_pin_badge()
         elif key == "monitor":
             self.overlay.reapply()
         config.save(self.settings)
+
+    def _sync_pin_badge(self):
+        """Значок ходит за активным окном, только когда закрепление включено."""
+        on = (self.settings.get("pin_enabled", True)
+              and self.settings.get("pin_badge", True))
+        if on:
+            self.pin_badge.start()
+        else:
+            self.pin_badge.stop()
+
+    def _on_badge_click(self, hwnd):
+        self.services.pin.toggle_window(hwnd)
 
     # --- обновления ------------------------------------------------------- #
 
@@ -220,6 +247,22 @@ class KnackApp:
             return
         self.overlay.ask_update(i18n.t("update.found") % self._pending_update)
 
+    def _on_toast_click(self):
+        """
+        Щёлкнули по плашке: панель выезжает, открываются настройки, колонка
+        доезжает до строки обновления — и поверх неё встаёт карточка установки.
+        """
+        if not self._pending_update or self.services.updates.installing():
+            return
+        self.overlay.open_panel()
+        self.overlay.set_tab("settings")
+        page = self._settings_page()
+        if page is not None:
+            page.reveal_update_row()
+        # Даём панели выехать и колонке доехать, и только потом накрываем всё
+        # карточкой: иначе она появилась бы раньше самой панели.
+        QTimer.singleShot(UPDATE_REVEAL_MS, self._install_update)
+
     def _show_update_card(self, version):
         """Открывает панель с карточкой установки, если её ещё нет."""
         if self.overlay.updating.blocking():
@@ -229,13 +272,17 @@ class KnackApp:
         self.overlay.start_update(i18n.t("update.card") % version)
 
     def _install_update(self):
+        if self.services.updates.installing():
+            return
         version = self._pending_update or self.services.updates.latest_version()
         self._pending_update = ""
+        self.toast.close_message()
         self._show_update_card(version)
         self.services.updates.install()
 
     def _dismiss_update(self):
         """«Позже»: об этой версии больше не напоминаем."""
+        self.toast.close_message()
         if self._pending_update:
             self.settings["update_dismissed_version"] = self._pending_update
             config.save(self.settings)
@@ -244,9 +291,9 @@ class KnackApp:
     def _check_update(self):
         """Пункт меню в трее: проверить и, если есть, сразу поставить."""
         if not self.services.updates.supported():
-            self.tray.notify(i18n.t("update.dev"))
+            self.toast.show_message(i18n.t("update.dev"), "", TOAST_MS)
             return
-        self.tray.notify(i18n.t("update.checking"))
+        self.toast.show_message(i18n.t("update.checking"), "", TOAST_MS)
         self.services.updates.check(then_install=True)
 
     def _settings_page(self):
@@ -292,23 +339,26 @@ class KnackApp:
             if page is not None:
                 page.set_update_status("", ready=True)
             if not silent:
-                self.tray.notify(i18n.t("update.available") % version)
+                self.toast.show_message(i18n.t("update.available") % version,
+                                        "", TOAST_MS)
                 return
             if version == self.settings.get("update_dismissed_version"):
                 return          # об этой версии уже спрашивали, ответили «позже»
             self._pending_update = version
-            self.tray.notify(i18n.t("update.found") % version)
+            # Плашка своя, а не системная: системные уведомления глушит
+            # «Фокусировка внимания», и сообщение о новой версии не доходит.
+            self.toast.show_message(i18n.t("update.found") % version,
+                                    i18n.t("update.toast.hint"))
             if self.overlay.is_open():
                 self._show_pending_update()
         elif key == "current":
             if not silent:
-                self.tray.notify(i18n.t("update.current"))
+                self.toast.show_message(i18n.t("update.current"), "", TOAST_MS)
         elif key == "error":
             if not silent:
-                self.tray.notify(i18n.t("update.error"))
+                self.toast.show_message(i18n.t("update.error"), "", TOAST_MS)
         elif key == "ready":
             self.overlay.update_progress(1.0, i18n.t("update.card.restart"))
-            self.tray.notify(i18n.t("update.ready"))
             # Настройки сохраняем до подмены: дальше процесс обрывается.
             config.save(self.settings)
             self.hotkeys.unregister_all()
@@ -324,6 +374,8 @@ class KnackApp:
         if self._quitting:
             return
         self._quitting = True
+        self.toast.close_message()
+        self.pin_badge.stop()
         config.save(self.settings)
         self.hotkeys.unregister_all()
         self.services.stop()
