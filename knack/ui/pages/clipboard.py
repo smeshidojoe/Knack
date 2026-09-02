@@ -8,7 +8,7 @@
 """
 
 from PySide6.QtCore import QRectF, Qt
-from PySide6.QtGui import QFontMetrics, QPainter
+from PySide6.QtGui import QFontMetrics
 
 from ...core import fonts, i18n, icons
 from ...core.constants import BODY_R

@@ -16,7 +16,7 @@ Always On Top из PowerToys. Флаг живёт в самом окне, а н�
 import ctypes
 from ctypes import wintypes
 
-from PySide6.QtCore import QObject, Signal
+from PySide6.QtCore import QObject
 
 from ..core import logbook
 
@@ -65,9 +65,7 @@ user32.SetWindowPos.argtypes = [wintypes.HWND, wintypes.HWND, ctypes.c_int,
 
 
 class PinService(QObject):
-    """pinned(окно закреплено) — для отклика в трее."""
-
-    pinned = Signal(bool)
+    """Закрепление чужих окон поверх остальных."""
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -76,17 +74,17 @@ class PinService(QObject):
     # --- состояние -------------------------------------------------------- #
 
     @staticmethod
-    def _is_topmost(hwnd):
+    def is_topmost(hwnd):
         return bool(user32.GetWindowLongW(hwnd, GWL_EXSTYLE) & WS_EX_TOPMOST)
 
     @staticmethod
-    def _class_name(hwnd):
+    def class_name(hwnd):
         buffer = ctypes.create_unicode_buffer(256)
         user32.GetClassNameW(hwnd, buffer, len(buffer))
         return buffer.value.lower()
 
     @classmethod
-    def _pinnable(cls, hwnd):
+    def pinnable(cls, hwnd):
         """
         Годится ли окно в закрепление.
 
@@ -97,7 +95,7 @@ class PinService(QObject):
         """
         if hwnd in (user32.GetShellWindow(), user32.GetDesktopWindow()):
             return False
-        if cls._class_name(hwnd) in SHELL_CLASSES:
+        if cls.class_name(hwnd) in SHELL_CLASSES:
             return False
         style = user32.GetWindowLongW(hwnd, GWL_STYLE)
         if style & WS_MINIMIZE:
@@ -105,7 +103,7 @@ class PinService(QObject):
         return True
 
     @staticmethod
-    def _own_window(hwnd):
+    def own_window(hwnd):
         """Наши собственные окна закреплять нечего: панель и так поверх всех."""
         pid = wintypes.DWORD()
         user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
@@ -128,11 +126,11 @@ class PinService(QObject):
     def toggle(self):
         """Закрепляет активное окно или снимает закрепление."""
         hwnd = user32.GetForegroundWindow()
-        if not hwnd or self._own_window(hwnd):
+        if not hwnd or self.own_window(hwnd):
             return None
-        if not self._pinnable(hwnd):
+        if not self.pinnable(hwnd):
             logbook.log("закрепление: это окно не закрепляем —",
-                        self._class_name(hwnd))
+                        self.class_name(hwnd))
             return None
         return self.toggle_window(hwnd)
 
@@ -140,7 +138,7 @@ class PinService(QObject):
         """То же для конкретного окна — по клику на значке."""
         if not hwnd or not user32.IsWindow(hwnd):
             return None
-        on = not self._is_topmost(hwnd)
+        on = not self.is_topmost(hwnd)
         if not self._set_topmost(hwnd, on):
             # Окна с правами администратора чужому SetWindowPos не поддаются.
             logbook.log("закрепление: окно не поддалось (запущено от админа?)")
@@ -149,12 +147,11 @@ class PinService(QObject):
             self._pinned.add(hwnd)
         else:
             self._pinned.discard(hwnd)
-        self.pinned.emit(on)
         return on
 
     def release_all(self):
         """Снимает закрепление со всех окон, которые закрепили мы."""
         for hwnd in list(self._pinned):
-            if user32.IsWindow(hwnd) and self._is_topmost(hwnd):
+            if user32.IsWindow(hwnd) and self.is_topmost(hwnd):
                 self._set_topmost(hwnd, False)
         self._pinned.clear()

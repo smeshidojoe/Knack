@@ -16,7 +16,6 @@ from .. import theme
 from ..widgets.buttons import IconButton
 from ..widgets.field import line_edit, restyle
 from ..widgets.listview import ListView
-from ..widgets.text import Text
 from .base import Page
 
 BAR_X, BAR_Y, BAR_W, BAR_H, BAR_R = 54, 31, 465, 22, 7

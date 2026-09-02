@@ -28,6 +28,14 @@ from PySide6.QtCore import QObject, Signal
 from ..core import logbook
 
 POLL_ACTIVE = 0.35      # секунд между опросами при открытой вкладке
+# Первые попытки достучаться до диспетчера сессий: он отвечает отказом, пока
+# поток интерфейса занят стартом.
+MANAGER_TRIES = 6
+MANAGER_RETRY_S = 0.4
+MANAGER_RETRY_MAX = 3.0
+# Служба медиасессий Windows иногда отвечает отказом целыми минутами — тогда
+# пробуем снова уже не спеша, чтобы вкладка ожила сама, без перезапуска.
+RECONNECT_S = 30.0
 STATUS_PLAYING = 4      # GlobalSystemMediaTransportControlsSessionPlaybackStatus
 
 _APP_NAMES = {
@@ -302,13 +310,16 @@ class MediaService(QObject):
 
     async def _main(self, Manager):
         self._wake = asyncio.Event()
-        try:
-            self._manager = await Manager.request_async()
-        except Exception:
-            logbook.exc("media manager")
-            return
+        complained = False
 
         while not self._stop.is_set():
+            if self._manager is None:
+                self._manager = await self._request_manager(Manager, complained)
+                if self._manager is None:
+                    complained = True       # в лог пишем один раз, не по кругу
+                    await asyncio.sleep(RECONNECT_S)
+                    continue
+                complained = False
             if self._active.is_set():
                 await self._push()
                 try:
@@ -322,6 +333,36 @@ class MediaService(QObject):
                 self._wake.clear()
                 if not self._stop.is_set() and self._active.is_set():
                     await self._push()
+
+    async def _request_manager(self, Manager, quiet=False):
+        """
+        Диспетчер сессий с повторными попытками.
+
+        Запрос уходит из нашего потока в поток интерфейса, а тот в первые
+        мгновения занят сборкой панели и сообщения не разбирает. Windows в таком
+        случае не ждёт, а отвечает «вызов отклонён фильтром сообщений», и без
+        повтора вкладка «Музыка» оставалась пустой до перезапуска.
+        """
+        delay = MANAGER_RETRY_S
+        for attempt in range(MANAGER_TRIES):
+            if self._stop.is_set():
+                return None
+            try:
+                return await Manager.request_async()
+            except OSError as error:
+                if attempt == MANAGER_TRIES - 1:
+                    if not quiet:
+                        logbook.log("медиа: служба сессий отказывает (%s) — "
+                                    "работаем по звучащим приложениям"
+                                    % (getattr(error, "winerror", error),))
+                    return None
+                await asyncio.sleep(delay)
+                delay = min(delay * 2, MANAGER_RETRY_MAX)
+            except Exception:
+                if not quiet:
+                    logbook.exc("media manager")
+                return None
+        return None
 
     # --- выбор сессии ------------------------------------------------------- #
 

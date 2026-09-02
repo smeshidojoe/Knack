@@ -95,6 +95,8 @@ class MediaPage(Page):
         self.volume = volume
         self.audio = audio
         self._sounding = None      # запасной режим: кто звучит мимо SMTC
+        self._source_pid = 0       # процесс источника: его громкость и крутим
+        self._source_key = ""     # для кого этот процесс искали
         self._art_key = None
         self._state = None
         self._ticker = Ticker(self._tick)
@@ -159,7 +161,11 @@ class MediaPage(Page):
         self.subtitle.setGeometry(s(CONTENT_X), s(SUBTITLE_Y), width, s(SUBTITLE_H))
 
         box = s(MEDIA_BTN_BOX)
-        cx = (s(CONTENT_X) + s(CONTENT_R)) // 2
+        # Центр берём по колонке содержимого (CONTENT_X..BODY_R). Раньше
+        # правой границей стоял CONTENT_R — край шапки с названием
+        # источника, и кнопки уезжали правее середины на полтора десятка
+        # пикселей.
+        cx = (s(CONTENT_X) + s(BODY_R)) // 2
         cy = s(BTN_CY)
         for btn, dx in ((self.prev, -s(BTN_GAP)), (self.play, 0),
                         (self.next, s(BTN_GAP))):
@@ -223,9 +229,7 @@ class MediaPage(Page):
                 self.title_text.set_text(i18n.t("media.idle"))
                 self.subtitle.set_text("")
                 self.source.set_text("")
-            if self._art_key is not None:
-                self._art_key = None
-                self.art.set_image(None)
+            self._show_app_icon()
             self.bar.set_values(0, 0)
             self.time_left.set_text("")
             self.time_right.set_text("")
@@ -299,6 +303,46 @@ class MediaPage(Page):
 
     # --- запасной режим ---------------------------------------------------- #
 
+    def _target_pid(self):
+        """
+        Процесс, чью громкость двигает ползунок.
+
+        Ползунок привязан к источнику звука, а не к системе: в запасном
+        режиме процесс известен сразу, а при обычном SMTC знаем только имя
+        файла — по нему и ищем живую сессию. Поиск не бесплатный, поэтому
+        держим найденное, пока источник не сменился.
+        """
+        if self.audio is None:
+            return 0
+        if self._sounding is not None:
+            return self._sounding.pid
+        state = self._state
+        key = (state.app_id if state else "") or ""
+        if not key:
+            self._source_key, self._source_pid = "", 0
+            return 0
+        if key != self._source_key or not self._source_pid:
+            self._source_key = key
+            self._source_pid = self.audio.pid_for_exe(key)
+        return self._source_pid
+
+    def _show_app_icon(self):
+        """
+        Вместо обложки — значок приложения, которое звучит.
+
+        В запасном режиме обложки взять неоткуда: аудиосессия знает только
+        процесс. Пустой серый квадрат выглядит поломкой, значок программы
+        хотя бы говорит, кто шумит.
+        """
+        key = "icon:%s" % (self._sounding.pid if self._sounding else "")
+        if key == self._art_key:
+            return
+        self._art_key = key
+        icon = None
+        if self._sounding is not None and self.audio is not None:
+            icon = self.audio.icon_for(self._sounding.pid)
+        self.art.set_pixmap(icon, inset=0.22)
+
     def _probe_sounding(self):
         """
         Кто выводит звук, когда SMTC ничего не отдаёт.
@@ -335,12 +379,15 @@ class MediaPage(Page):
         того приложения, что звучит: раз уж мы показываем именно его, логично и
         крутить именно его.
         """
-        if self._sounding is not None and self.audio is not None:
-            level = self.audio.level(self._sounding.pid)
+        pid = self._target_pid()
+        if pid:
+            level = self.audio.level(pid)
             if level is not None:
                 self.volume_bar.show()
-                self.volume_bar.set_values(level, self.audio.muted(self._sounding.pid))
+                self.volume_bar.set_values(level, self.audio.muted(pid))
                 return
+            # Сессия закрылась — искать её заново на следующем круге.
+            self._source_pid = 0
         if not self.volume:
             return
         level = self.volume.level()
@@ -351,18 +398,17 @@ class MediaPage(Page):
         self.volume_bar.set_values(level, self.volume.muted())
 
     def _on_volume(self, value):
-        if self._sounding is not None and self.audio is not None:
-            if self.audio.set_level(self._sounding.pid, value):
-                return
+        pid = self._target_pid()
+        if pid and self.audio.set_level(pid, value):
+            return
         if self.volume:
             self.volume.set_level(value)
 
     def _on_mute(self):
-        if self._sounding is not None and self.audio is not None:
-            pid = self._sounding.pid
-            if self.audio.set_muted(pid, not self.audio.muted(pid)):
-                self._sync_volume()
-                return
+        pid = self._target_pid()
+        if pid and self.audio.set_muted(pid, not self.audio.muted(pid)):
+            self._sync_volume()
+            return
         if not self.volume:
             return
         self.volume.toggle_mute()

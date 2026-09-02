@@ -9,7 +9,7 @@ from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QGuiApplication, QIcon
 from PySide6.QtWidgets import QApplication
 
-from .core import autostart, config, fonts, i18n, icons, logbook, updater
+from .core import autostart, config, fonts, i18n, icons, logbook
 from .core.constants import APP_ICO, APP_ID, APP_NAME, APP_VERSION
 from .core.hotkey import HotkeyManager
 from .services.hub import Services
@@ -47,8 +47,6 @@ class KnackApp:
         theme.apply(self.settings.get("theme"))
 
         self.services = Services(self.settings)
-        self.services.start()
-
         self.overlay = Overlay(self.settings, self.services)
         self.overlay.setting_changed.connect(self._on_setting)
         self.overlay.hotkey_capture.connect(self._on_capture)
@@ -94,6 +92,10 @@ class KnackApp:
 
         self._install_signals()
         self.overlay.start_watching()
+        # Службы поднимаем, когда окна собраны и цикл событий уже крутится:
+        # запросы к системным службам идут через поток интерфейса, а занятый
+        # сборкой поток отвечает на них отказом.
+        QTimer.singleShot(0, self.services.start)
         # После сборки окон: прогрев и построение интерфейса тянут один и тот же
         # шрифтовой замок, и запущенный раньше поток задержал бы старт.
         fonts.warm_up()
@@ -281,6 +283,28 @@ class KnackApp:
         self._show_update_card(version)
         self.services.updates.install()
 
+    def _apply_update(self):
+        """
+        Ставим скачанное: сначала помощник, потом разбор программы.
+
+        Порядок важен. Помощник ждёт, пока наш exe освободится, поэтому выходить
+        надо сразу за его запуском. Но если запустить его не удалось, программа
+        обязана остаться целой: раньше службы к этому моменту были уже
+        остановлены, а панель заперта карточкой навсегда.
+        """
+        self.overlay.update_progress(1.0, i18n.t("update.card.restart"))
+        if not self.services.updates.start_helper():
+            logbook.log("обновление: помощник не запустился, остаёмся работать")
+            self.services.updates.cancel_install()
+            self.overlay.finish_update()
+            self.toast.show_message(i18n.t("update.error"), "", TOAST_MS)
+            return
+        config.save(self.settings)
+        self.hotkeys.unregister_all()
+        self.pin_badge.stop()
+        self.services.stop()
+        self.services.updates.exit_now()
+
     def _dismiss_update(self):
         """«Позже»: об этой версии больше не напоминаем."""
         self.toast.close_message()
@@ -359,12 +383,7 @@ class KnackApp:
             if not silent:
                 self.toast.show_message(i18n.t("update.error"), "", TOAST_MS)
         elif key == "ready":
-            self.overlay.update_progress(1.0, i18n.t("update.card.restart"))
-            # Настройки сохраняем до подмены: дальше процесс обрывается.
-            config.save(self.settings)
-            self.hotkeys.unregister_all()
-            self.services.stop()
-            self.services.updates.apply_and_exit()
+            self._apply_update()
 
     def set_language(self, code):
         if i18n.set_language(code):

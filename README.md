@@ -58,8 +58,8 @@ Not every player publishes a media session either — ads, short clips and some
 Chromium builds play without one. When that happens the tab falls back to the
 audio sessions: it shows which app is making sound and the title of its window,
 which in a browser is the tab title. There is nothing to control that way, so
-the transport buttons and the seek bar step aside, and the volume slider moves
-that app's own volume instead of the system one.
+the transport buttons and the seek bar go dim, and the cover art is replaced by
+the icon of the app making the sound.
 
 Under the cover art sits the volume, the same level the system tray slider
 shows. Click or drag the bar, roll the wheel over it for 5% steps, click
@@ -73,8 +73,8 @@ Screenshots you copy land here on their own, and files can be dropped in with th
 mouse — drag one over the panel from any tab and the shelf opens by itself. A
 click puts the picture on the clipboard, the cross removes the card, "Clear" in
 the top right empties the shelf. A card can be dragged back out — into a folder,
-a chat, any window that takes files. For music and video the clipboard gets the file path, which is what chats
-paste with `Ctrl+V`.
+a chat, any window that takes files. For music and video the clipboard gets the
+file path, which is what chats paste with `Ctrl+V`.
 
 Files live in `%APPDATA%\Knack\clipboard` and survive restarts. Delete a file
 outside the app and its card disappears by itself.

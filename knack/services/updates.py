@@ -98,6 +98,10 @@ class UpdateService(QObject):
         threading.Thread(target=self._download_worker, args=(self._latest,),
                          name="knack-update", daemon=True).start()
 
+    def cancel_install(self):
+        """Установка не состоялась — снимаем замок, чтобы можно было повторить."""
+        self._installing = False
+
     def _download_worker(self, result):
         version = result.get("version", "")
         try:
@@ -116,13 +120,22 @@ class UpdateService(QObject):
     # --- применение ----------------------------------------------------------- #
 
     @staticmethod
-    def apply_and_exit():
+    def start_helper():
         """
-        Запускает подмену exe и немедленно выходит.
+        Запускает помощника, который подменит exe. True — пошло.
 
-        Обычный выход тут не годится: пока процесс жив, его exe заблокирован, и
-        помощник будет ждать впустую. Настройки сохраняет вызывающий.
+        Разделено с выходом нарочно: вызывающий сначала спрашивает, удалось ли
+        запустить помощника, и только потом разбирает программу. Иначе при
+        неудаче мы оставались бы с остановленными службами и запертой панелью.
         """
-        if not updater.restart_to_update():
-            return False
+        return bool(updater.restart_to_update())
+
+    @staticmethod
+    def exit_now():
+        """
+        Обрывает процесс, освобождая свой exe.
+
+        Обычный выход тут не годится: пока процесс жив, его файл заблокирован, и
+        помощник будет ждать впустую.
+        """
         os._exit(0)

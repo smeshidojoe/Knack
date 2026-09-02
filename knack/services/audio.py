@@ -23,7 +23,8 @@ import os
 import time
 from ctypes import POINTER, byref, c_float, c_int, c_uint, c_void_p, wintypes
 
-from PySide6.QtCore import QObject
+from PySide6.QtCore import QFileInfo, QObject
+from PySide6.QtWidgets import QFileIconProvider
 
 from ..core import logbook
 from .media import app_name
@@ -76,8 +77,8 @@ user32.GetWindowThreadProcessId.argtypes = [wintypes.HWND,
 _ENUM_PROC = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
 
 
-def process_name(pid):
-    """Имя exe по номеру процесса. Пустая строка — не спросить."""
+def process_path(pid):
+    """Полный путь к exe процесса. Пустая строка — не спросить."""
     if not pid:
         return ""
     handle = kernel32.OpenProcess(PROCESS_QUERY_LIMITED, False, pid)
@@ -87,10 +88,15 @@ def process_name(pid):
         buffer = ctypes.create_unicode_buffer(512)
         size = wintypes.DWORD(len(buffer))
         if kernel32.QueryFullProcessImageNameW(handle, 0, buffer, byref(size)):
-            return os.path.basename(buffer.value)
+            return buffer.value
     finally:
         kernel32.CloseHandle(handle)
     return ""
+
+
+def process_name(pid):
+    """Имя exe по номеру процесса."""
+    return os.path.basename(process_path(pid))
 
 
 def window_title(pid):
@@ -209,6 +215,7 @@ class AudioSessions(QObject):
         self._broken = False
         self._volume_of = {}     # pid -> ISimpleAudioVolume
         self._title_owner = {}   # pid звучащего процесса -> pid процесса с окном
+        self._icons = {}         # путь к exe -> значок приложения
         self._last_loud = (None, 0.0)   # кто звучал последним и когда
 
     # --- подключение ------------------------------------------------------ #
@@ -266,6 +273,7 @@ class AudioSessions(QObject):
             return None
         best = None
         best_peak = 0.0
+        alive = set()
         try:
             count = c_int()
             if _method(sessions, ENUM_GET_COUNT, POINTER(c_int))(
@@ -274,7 +282,7 @@ class AudioSessions(QObject):
             # Перебираем все сессии и берём самую громкую: открытых потоков
             # обычно несколько, а звучит из них один.
             for index in range(count.value):
-                item = self._read_session(sessions, index)
+                item = self._read_session(sessions, index, alive)
                 if item is None:
                     continue
                 peak, app_info = item
@@ -282,6 +290,7 @@ class AudioSessions(QObject):
                     best_peak, best = peak, app_info
         finally:
             _release(sessions)
+        self._drop_gone(alive)
 
         now = time.monotonic()
         if best is not None and best_peak > PEAK_SILENCE:
@@ -295,7 +304,69 @@ class AudioSessions(QObject):
         self._last_loud = (None, 0.0)
         return None
 
-    def _read_session(self, sessions, index):
+    def pid_for_exe(self, name):
+        """
+        Номер процесса живой сессии по имени файла.
+
+        Нужен, чтобы привязать ползунок громкости к источнику, который
+        назвал SMTC: там известно только имя вроде chrome.exe.
+        """
+        name = (name or "").lower()
+        if not name.endswith(".exe"):
+            return 0
+        best, best_peak = 0, -1.0
+        manager = self._get_manager()
+        if not manager:
+            return 0
+        sessions = c_void_p()
+        if _method(manager, MGR_GET_ENUMERATOR, POINTER(c_void_p))(
+                manager, byref(sessions)) < 0 or not sessions:
+            return 0
+        try:
+            count = c_int()
+            _method(sessions, ENUM_GET_COUNT, POINTER(c_int))(sessions,
+                                                              byref(count))
+            for index in range(count.value):
+                item = self._read_session(sessions, index)
+                if item is None:
+                    continue
+                peak, app_info = item
+                # Процессов с одним именем бывает много (тот же браузер):
+                # берём тот, что действительно звучит.
+                if app_info.exe.lower() == name and peak > best_peak:
+                    best, best_peak = app_info.pid, peak
+        finally:
+            _release(sessions)
+        return best
+
+    def icon_for(self, pid):
+        """Значок приложения — им подменяем обложку, когда её нет."""
+        path = process_path(pid)
+        if not path:
+            return None
+        cached = self._icons.get(path)
+        if cached is not None:
+            return cached
+        icon = QFileIconProvider().icon(QFileInfo(path))
+        pixmap = icon.pixmap(256, 256) if not icon.isNull() else None
+        if pixmap is not None and pixmap.isNull():
+            pixmap = None
+        self._icons[path] = pixmap
+        return pixmap
+
+    def _drop_gone(self, alive):
+        """
+        Отпускаем интерфейсы приложений, которых в списке больше нет.
+
+        Программа отыграла и закрылась — держать её громкость незачем, а
+        сама по себе ссылка не освободится.
+        """
+        for pid in [p for p in self._volume_of if p not in alive]:
+            _release(self._volume_of.pop(pid))
+        for pid in [p for p in self._title_owner if p not in alive]:
+            self._title_owner.pop(pid, None)
+
+    def _read_session(self, sessions, index, alive=None):
         control = c_void_p()
         if _method(sessions, ENUM_GET_SESSION, c_int, POINTER(c_void_p))(
                 sessions, index, byref(control)) < 0 or not control:
@@ -321,6 +392,8 @@ class AudioSessions(QObject):
                 control2, byref(pid))
             if not pid.value:
                 return None
+            if alive is not None:
+                alive.add(pid.value)
             name = ctypes.c_wchar_p()
             _method(control2, CTL_GET_DISPLAY_NAME,
                     POINTER(ctypes.c_wchar_p))(control2, byref(name))

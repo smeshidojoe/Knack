@@ -14,6 +14,18 @@ class Artwork(QWidget):
         self.setAttribute(Qt.WA_TransparentForMouseEvents, True)
         self._radius = radius
         self._pixmap = QPixmap()
+        self._inset = 0.0        # доля стороны, оставленная вокруг картинки
+
+    def set_pixmap(self, pixmap, inset=0.0):
+        """
+        Готовая картинка вместо байтов: так показываем значок приложения.
+
+        inset — сколько места оставить вокруг. Обложка заполняет квадрат целиком,
+        а значок программы, растянутый во всю карточку, выглядит наклейкой.
+        """
+        self._pixmap = pixmap if pixmap is not None else QPixmap()
+        self._inset = max(0.0, min(0.45, float(inset)))
+        self.update()
 
     def set_image(self, data):
         """data: bytes с картинкой или None."""
@@ -21,6 +33,7 @@ class Artwork(QWidget):
         if data:
             pm.loadFromData(data)
         self._pixmap = pm
+        self._inset = 0.0
         self.update()
 
     def has_image(self):
@@ -41,8 +54,20 @@ class Artwork(QWidget):
             p.fillPath(path, theme.color("placeholder"))
             return
 
-        # Обложки приходят квадратными не всегда — вписываем по короткой стороне.
         src = self._pixmap
+        if self._inset:
+            # Значок кладём на тёмную карточку и оставляем поля.
+            p.fillPath(path, theme.color("card"))
+            pad = min(rect.width(), rect.height()) * self._inset
+            rect = rect.adjusted(pad, pad, -pad, -pad)
+            k = min(rect.width() / src.width(), rect.height() / src.height())
+            w, h = src.width() * k, src.height() * k
+            p.drawPixmap(QRectF(rect.x() + (rect.width() - w) / 2,
+                                rect.y() + (rect.height() - h) / 2, w, h),
+                         src, QRectF(src.rect()))
+            return
+
+        # Обложки приходят квадратными не всегда — вписываем по короткой стороне.
         k = max(rect.width() / src.width(), rect.height() / src.height())
         w, h = src.width() * k, src.height() * k
         p.drawPixmap(QRectF((rect.width() - w) / 2, (rect.height() - h) / 2, w, h),

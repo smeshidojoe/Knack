@@ -13,7 +13,6 @@
 файлы: наружу уходит тот же набор данных, что и в буфер.
 """
 
-import os
 
 from PySide6.QtCore import QPoint, QRect, QRectF, Qt
 from PySide6.QtGui import (QDrag, QFontMetrics, QPainter, QPainterPath, QPen,

@@ -176,7 +176,7 @@ class UpdateOverlay(QWidget):
 
         card = self._card_rect()
         left, top = card.left(), card.top()
-        card_w, card_h = card.width(), card.height()
+        card_w = card.width()
         p.setOpacity(progress)
         p.setPen(Qt.NoPen)
         p.setBrush(theme.color("surface_alt"))

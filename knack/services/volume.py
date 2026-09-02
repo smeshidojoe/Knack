@@ -15,7 +15,7 @@
 import ctypes
 from ctypes import POINTER, byref, c_float, c_void_p
 
-from PySide6.QtCore import QObject, Signal
+from PySide6.QtCore import QObject
 
 from ..core import logbook
 
@@ -79,15 +79,12 @@ def _release(ptr):
 
 
 class VolumeService(QObject):
-    """changed(доля 0..1, выключен ли звук) — когда уровень поменяли снаружи."""
-
-    changed = Signal(float, bool)
+    """Общий уровень вывода: чтение, запись, выключение звука."""
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self._volume = None
         self._broken = False
-        self._last = None
 
     # --- подключение ------------------------------------------------------ #
 
@@ -183,7 +180,6 @@ class VolumeService(QObject):
         # звука и не слышать результата — худшее, что может сделать регулятор.
         if value > 0 and self.muted():
             self.set_muted(False)
-        self._last = (value, False)
         return True
 
     def set_muted(self, muted):
@@ -199,16 +195,6 @@ class VolumeService(QObject):
 
     def toggle_mute(self):
         self.set_muted(not self.muted())
-
-    def poll(self):
-        """Уровень могли сменить мимо нас — колёсиком или системным ползунком."""
-        level = self.level()
-        if level is None:
-            return
-        state = (round(level, 4), self.muted())
-        if state != self._last:
-            self._last = state
-            self.changed.emit(state[0], state[1])
 
     def shutdown(self):
         self._forget()

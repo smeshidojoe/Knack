@@ -49,6 +49,7 @@ class Toast(QWidget):
         self._subtitle = ""
         self._hover = False
         self._hover_close = False
+        self._screen = None      # экран выбираем один раз, при показе
         self._appear = Tween(self._on_appear, value=0.0, duration=FADE_S,
                              on_done=self._on_appear_done)
         self._life = QTimer(self)
@@ -64,6 +65,10 @@ class Toast(QWidget):
         self._life.stop()
         if timeout_ms:
             self._life.start(int(timeout_ms))
+        # Экран запоминаем на время показа: иначе уведённая на другой
+        # монитор мышь перебрасывала бы плашку прямо посреди появления.
+        self._screen = (QGuiApplication.screenAt(QCursor.pos())
+                        or QGuiApplication.primaryScreen())
         self._place()
         self.show()
         self.raise_()
@@ -85,9 +90,8 @@ class Toast(QWidget):
             self.hide()
 
     def _place(self):
-        """Правый нижний угол экрана, на котором сейчас курсор."""
-        screen = (QGuiApplication.screenAt(QCursor.pos())
-                  or QGuiApplication.primaryScreen())
+        """Правый нижний угол экрана, выбранного при показе."""
+        screen = self._screen or QGuiApplication.primaryScreen()
         if screen is None:
             return
         area = screen.availableGeometry()

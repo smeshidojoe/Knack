@@ -10,7 +10,6 @@
 масштаб, перерегистрировать хоткей, поменять язык.
 """
 
-import os
 
 from PySide6.QtCore import QEasingCurve, QRectF, Qt, Signal
 from PySide6.QtGui import QFontMetrics, QPainter

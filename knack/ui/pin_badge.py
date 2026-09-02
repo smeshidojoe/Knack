@@ -36,6 +36,14 @@ from . import theme
 user32 = ctypes.windll.user32
 dwmapi = ctypes.windll.dwmapi
 
+class _MONITORINFOEX(ctypes.Structure):
+    _fields_ = [("cbSize", wintypes.DWORD),
+                ("rcMonitor", wintypes.RECT),
+                ("rcWork", wintypes.RECT),
+                ("dwFlags", wintypes.DWORD),
+                ("szDevice", ctypes.c_wchar * 32)]
+
+
 _HOOK_PROC = ctypes.WINFUNCTYPE(None, wintypes.HANDLE, wintypes.DWORD,
                                 wintypes.HWND, wintypes.LONG, wintypes.LONG,
                                 wintypes.DWORD, wintypes.DWORD)
@@ -53,6 +61,11 @@ user32.SetWinEventHook.argtypes = [wintypes.DWORD, wintypes.DWORD,
                                    wintypes.DWORD]
 user32.UnhookWinEvent.restype = wintypes.BOOL
 user32.UnhookWinEvent.argtypes = [wintypes.HANDLE]
+user32.MonitorFromWindow.restype = wintypes.HANDLE
+user32.MonitorFromWindow.argtypes = [wintypes.HWND, wintypes.DWORD]
+user32.GetMonitorInfoW.restype = wintypes.BOOL
+user32.GetMonitorInfoW.argtypes = [wintypes.HANDLE,
+                                   ctypes.POINTER(_MONITORINFOEX)]
 try:
     user32.GetDpiForWindow.restype = wintypes.UINT
     user32.GetDpiForWindow.argtypes = [wintypes.HWND]
@@ -68,6 +81,7 @@ EVENT_OBJECT_LOCATIONCHANGE = 0x800B
 WINEVENT_OUTOFCONTEXT = 0x0000
 WINEVENT_SKIPOWNPROCESS = 0x0002
 OBJID_WINDOW = 0
+MONITOR_DEFAULTTONEAREST = 2
 
 GWL_STYLE = -16
 GWL_EXSTYLE = -20
@@ -138,7 +152,7 @@ class PinBadge(QWidget):
         # Ссылку на обёртку держим сами: Windows зовёт её из своего кода, и
         # собранный сборщиком мусора объект уронил бы процесс.
         self._hook_proc = _HOOK_PROC(self._on_win_event)
-        self._hook = 0
+        self._hooks = []
 
     # --- запуск ------------------------------------------------------------ #
 
@@ -160,17 +174,23 @@ class PinBadge(QWidget):
         за окном на верёвочке. Windows умеет сообщать о смене положения сразу —
         подписываемся и переставляемся в тот же миг.
         """
-        if self._hook:
+        if self._hooks:
             return
-        self._hook = user32.SetWinEventHook(
-            EVENT_SYSTEM_FOREGROUND, EVENT_OBJECT_LOCATIONCHANGE, None,
-            self._hook_proc, 0, 0,
-            WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS)
+        # Ровно два события. Один перехват на весь диапазон от
+        # EVENT_SYSTEM_FOREGROUND до EVENT_OBJECT_LOCATIONCHANGE тянул бы к
+        # нам ещё и создание, уничтожение, показ и фокус любого объекта в
+        # системе — всё это надо принять и отбросить.
+        flags = WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS
+        for event in (EVENT_SYSTEM_FOREGROUND, EVENT_OBJECT_LOCATIONCHANGE):
+            handle = user32.SetWinEventHook(event, event, None,
+                                            self._hook_proc, 0, 0, flags)
+            if handle:
+                self._hooks.append(handle)
 
     def _remove_hook(self):
-        if self._hook:
-            user32.UnhookWinEvent(self._hook)
-            self._hook = 0
+        for handle in self._hooks:
+            user32.UnhookWinEvent(handle)
+        self._hooks = []
 
     def _on_win_event(self, _hook, event, hwnd, id_object, _id_child,
                       _thread, _time):
@@ -186,7 +206,8 @@ class PinBadge(QWidget):
 
     def _follow(self):
         hwnd = user32.GetForegroundWindow()
-        if not self._suitable(hwnd):
+        rect = self._visible_rect(hwnd) if hwnd else None
+        if not self._suitable(hwnd, rect):
             self._candidate = self._steady = 0
             self._hwnd = 0
             if self.isVisible():
@@ -201,26 +222,24 @@ class PinBadge(QWidget):
         if self._steady < STABLE_TICKS and hwnd != self._hwnd:
             return
 
-        rect = self._visible_rect(hwnd)
-        if rect is None:
-            return
-        if self._fullscreen(rect):
+        if self._fullscreen(hwnd, rect):
             # Поверх игры или полноэкранного видео значок только мешает.
             self._hwnd = 0
             self.hide()
             return
 
         self._hwnd = hwnd
-        pinned = self.pin._is_topmost(hwnd)
+        pinned = self.pin.is_topmost(hwnd)
         if pinned != self._pinned:
             self._pinned = pinned
             self.update()
         self._place(rect)
 
-    def _suitable(self, hwnd):
+    def _suitable(self, hwnd, rect=None):
+        """rect — уже посчитанные границы, если они есть у вызывающего."""
         if not hwnd:
             return False
-        if self.pin._own_window(hwnd) or not self.pin._pinnable(hwnd):
+        if self.pin.own_window(hwnd) or not self.pin.pinnable(hwnd):
             return False
         if not user32.GetWindowLongW(hwnd, GWL_STYLE) & WS_CAPTION:
             # Без заголовка — не окно программы, а меню, подсказка или
@@ -232,11 +251,11 @@ class PinBadge(QWidget):
             return False        # служебные окна закреплять незачем
         if self._cloaked(hwnd):
             return False        # окно есть, а на экране его нет
-        rect = self._visible_rect(hwnd)
+        if rect is None:
+            rect = self._visible_rect(hwnd)
         if rect is None:
             return False
-        ratio = self._window_ratio(hwnd, 1.0)
-        least = MIN_SIDE * ratio
+        least = MIN_SIDE * self._window_ratio(hwnd, 1.0)
         return (rect.right - rect.left) >= least and (rect.bottom - rect.top) >= least
 
     @staticmethod
@@ -269,16 +288,44 @@ class PinBadge(QWidget):
         return None
 
     @staticmethod
-    def _fullscreen(rect):
+    def _monitor(hwnd):
+        """
+        Сведения о мониторе окна: физические границы и имя устройства.
+
+        Раньше физические границы считались как «логические × масштаб», но
+        при двух мониторах с разным масштабом Windows раскладывает
+        физические координаты иначе, и полноэкранный режим на втором экране
+        определялся неверно. Спрашиваем систему.
+        """
+        handle = user32.MonitorFromWindow(wintypes.HWND(hwnd),
+                                          MONITOR_DEFAULTTONEAREST)
+        if not handle:
+            return None
+        info = _MONITORINFOEX()
+        info.cbSize = ctypes.sizeof(_MONITORINFOEX)
+        if not user32.GetMonitorInfoW(handle, ctypes.byref(info)):
+            return None
+        return info
+
+    def _fullscreen(self, hwnd, rect):
+        info = self._monitor(hwnd)
+        if info is None:
+            return False
+        screen = info.rcMonitor
+        return (abs(rect.left - screen.left) < 2
+                and abs(rect.top - screen.top) < 2
+                and abs(rect.right - screen.right) < 2
+                and abs(rect.bottom - screen.bottom) < 2)
+
+    def _screen_for(self, hwnd):
+        """QScreen того же монитора: имена устройств у Qt и Windows совпадают."""
+        info = self._monitor(hwnd)
+        if info is None:
+            return QGuiApplication.primaryScreen()
         for screen in QGuiApplication.screens():
-            geo = screen.geometry()
-            ratio = screen.devicePixelRatio()
-            if (abs(rect.left - geo.x() * ratio) < 2
-                    and abs(rect.top - geo.y() * ratio) < 2
-                    and abs((rect.right - rect.left) - geo.width() * ratio) < 2
-                    and abs((rect.bottom - rect.top) - geo.height() * ratio) < 2):
-                return True
-        return False
+            if screen.name() == info.szDevice:
+                return screen
+        return QGuiApplication.primaryScreen()
 
     @staticmethod
     def _window_ratio(hwnd, fallback):
@@ -295,16 +342,6 @@ class PinBadge(QWidget):
         except Exception:
             pass
         return fallback
-
-    def _ratio_at(self, x, y):
-        for screen in QGuiApplication.screens():
-            geo = screen.geometry()
-            ratio = screen.devicePixelRatio()
-            if (geo.x() * ratio <= x < (geo.x() + geo.width()) * ratio
-                    and geo.y() * ratio <= y < (geo.y() + geo.height()) * ratio):
-                return ratio
-        primary = QGuiApplication.primaryScreen()
-        return primary.devicePixelRatio() if primary else 1.0
 
     @staticmethod
     def _caption_buttons(hwnd):
@@ -327,8 +364,9 @@ class PinBadge(QWidget):
 
     def _place(self, rect):
         """rect — видимые границы окна; кнопки заголовка DWM меряет от его угла."""
-        ratio = self._window_ratio(self._hwnd,
-                                   self._ratio_at(rect.right - 1, rect.top))
+        screen = self._screen_for(self._hwnd)
+        ratio = self._window_ratio(
+            self._hwnd, screen.devicePixelRatio() if screen else 1.0)
         buttons = self._caption_buttons(self._hwnd)
         if buttons is not None:
             # Встаём следующей кнопкой в том же ряду и той же высоты.
@@ -365,11 +403,14 @@ class PinBadge(QWidget):
         if now - self._probe_at < PROBE_MS / 1000.0:
             return
         self._probe_at = now
-        screen = QGuiApplication.primaryScreen()
-        if screen is None:
+        screen = self._screen_for(self._hwnd)
+        info = self._monitor(self._hwnd)
+        if screen is None or info is None:
             return
         # Левее значка: под собой мы бы сняли собственную прозрачную поверхность.
-        shot = screen.grabWindow(0, x - max(4, side // 4), y + side // 2, 1, 1)
+        point = self._to_logical(screen, info,
+                                 x - max(4, side // 4), y + side // 2)
+        shot = screen.grabWindow(0, point[0], point[1], 1, 1)
         image = shot.toImage() if not shot.isNull() else None
         if image is None or image.isNull():
             return
@@ -380,6 +421,19 @@ class PinBadge(QWidget):
         if light != self._light_bg:
             self._light_bg = light
             self.update()
+
+    @staticmethod
+    def _to_logical(screen, info, x, y):
+        """
+        Физическая точка экрана в логические координаты Qt.
+
+        Позицию значка мы считаем в физических пикселях, а grabWindow ждёт
+        логические: на мониторе с масштабом снимок брался не оттуда.
+        """
+        ratio = screen.devicePixelRatio() or 1.0
+        geo = screen.geometry()
+        return (int(geo.x() + (x - info.rcMonitor.left) / ratio),
+                int(geo.y() + (y - info.rcMonitor.top) / ratio))
 
     @staticmethod
     def _clamp_into(x, y, side, rect):
@@ -427,7 +481,7 @@ class PinBadge(QWidget):
             return
         self.clicked.emit(self._hwnd)
         # Состояние перечитываем сразу, не дожидаясь следующего круга слежения.
-        self._pinned = self.pin._is_topmost(self._hwnd)
+        self._pinned = self.pin.is_topmost(self._hwnd)
         self.update()
         for delay in RERAISE_MS:
             QTimer.singleShot(delay, self._reraise)
@@ -449,7 +503,7 @@ class PinBadge(QWidget):
             return
         user32.SetWindowPos(int(self.winId()), HWND_TOPMOST, 0, 0, 0, 0,
                             SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE)
-        pinned = self.pin._is_topmost(self._hwnd)
+        pinned = self.pin.is_topmost(self._hwnd)
         if pinned != self._pinned:
             self._pinned = pinned
             self.update()
