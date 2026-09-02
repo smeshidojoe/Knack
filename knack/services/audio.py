@@ -8,7 +8,9 @@
 играет», хотя звук идёт.
 
 Здесь мы спрашиваем не «что играет», а «кто шумит»: у устройства вывода есть
-список сессий, и у каждой видно состояние, процесс и собственная громкость.
+список сессий, и у каждой видно процесс, собственная громкость и текущий уровень
+сигнала. Уровень тут главный: открытый звуковой поток держат и монтажки, и игры,
+и голосовые программы — молча, часами. Берём ту сессию, которая громче всех.
 Названия трека и кнопок отсюда не получить — вместо названия берём заголовок
 окна процесса, у браузера это заголовок вкладки.
 
@@ -18,6 +20,7 @@
 
 import ctypes
 import os
+import time
 from ctypes import POINTER, byref, c_float, c_int, c_uint, c_void_p, wintypes
 
 from PySide6.QtCore import QObject
@@ -34,6 +37,7 @@ kernel32 = ctypes.windll.kernel32
 IID_IAudioSessionManager2 = "{77AA99A0-1BD6-484F-8BC7-2C654C9A9B6F}"
 IID_IAudioSessionControl2 = "{BFB7FF88-7239-4FC9-8FA2-07C950BE9C6D}"
 IID_ISimpleAudioVolume = "{87CE5498-68D6-44E5-9215-6DA47EF883D8}"
+IID_IAudioMeterInformation = "{C02216F6-8C67-4B5B-9D00-D008E73E0064}"
 
 # Номера методов в таблицах (первые три — от IUnknown).
 DEV_ENUM_GET_DEFAULT = 4
@@ -49,8 +53,17 @@ VOL_SET_MASTER = 3                # ISimpleAudioVolume::SetMasterVolume
 VOL_GET_MASTER = 4
 VOL_SET_MUTE = 5
 VOL_GET_MUTE = 6
+METER_GET_PEAK = 3                # IAudioMeterInformation::GetPeakValue
 
-STATE_ACTIVE = 1                  # сессия прямо сейчас выводит звук
+STATE_ACTIVE = 1                  # у сессии открыт поток вывода
+
+# Открытый поток ещё не значит «звучит»: монтажки, игры и голосовые программы
+# держат его всё время работы, даже в полной тишине. Настоящий признак — уровень
+# сигнала, его и спрашиваем.
+PEAK_SILENCE = 1e-4
+# Тишина между репликами не должна выбрасывать источник: пару секунд считаем,
+# что играет всё тот же.
+PEAK_MEMORY_S = 3.0
 
 PROCESS_QUERY_LIMITED = 0x1000
 
@@ -196,6 +209,7 @@ class AudioSessions(QObject):
         self._broken = False
         self._volume_of = {}     # pid -> ISimpleAudioVolume
         self._title_owner = {}   # pid звучащего процесса -> pid процесса с окном
+        self._last_loud = (None, 0.0)   # кто звучал последним и когда
 
     # --- подключение ------------------------------------------------------ #
 
@@ -250,19 +264,36 @@ class AudioSessions(QObject):
         if hr < 0 or not sessions:
             self._forget()
             return None
-        found = None
+        best = None
+        best_peak = 0.0
         try:
             count = c_int()
             if _method(sessions, ENUM_GET_COUNT, POINTER(c_int))(
                     sessions, byref(count)) < 0:
                 return None
+            # Перебираем все сессии и берём самую громкую: открытых потоков
+            # обычно несколько, а звучит из них один.
             for index in range(count.value):
-                found = self._read_session(sessions, index) or found
-                if found:
-                    break
+                item = self._read_session(sessions, index)
+                if item is None:
+                    continue
+                peak, app_info = item
+                if peak > best_peak:
+                    best_peak, best = peak, app_info
         finally:
             _release(sessions)
-        return found
+
+        now = time.monotonic()
+        if best is not None and best_peak > PEAK_SILENCE:
+            self._last_loud = (best, now)
+            return best
+        # Все молчат: пару секунд держим прежний источник, чтобы вкладка не
+        # мигала на паузе между репликами.
+        remembered, when = self._last_loud
+        if remembered is not None and now - when < PEAK_MEMORY_S:
+            return remembered
+        self._last_loud = (None, 0.0)
+        return None
 
     def _read_session(self, sessions, index):
         control = c_void_p()
@@ -281,6 +312,7 @@ class AudioSessions(QObject):
                 return None
             if state.value != STATE_ACTIVE:
                 return None
+            peak = self._peak(control)
             # Системные звуки — не музыка: щелчки и уведомления показывать нечего.
             if _method(control2, CTL2_IS_SYSTEM_SOUNDS)(control2) == 0:
                 return None
@@ -299,10 +331,27 @@ class AudioSessions(QObject):
             # файлу, тем же справочником, что и обычный путь через SMTC.
             if not label or label.startswith("@"):
                 label = app_name(exe)
-            return AudioApp(pid.value, exe, label, self._title(pid.value))
+            return peak, AudioApp(pid.value, exe, label, self._title(pid.value))
         finally:
             _release(control2)
             _release(control)
+
+    @staticmethod
+    def _peak(control):
+        """Текущий уровень сигнала сессии, 0..1. Тишина — ровно ноль."""
+        meter = c_void_p()
+        if _method(control, 0, POINTER(GUID), POINTER(c_void_p))(
+                control, byref(GUID(IID_IAudioMeterInformation)),
+                byref(meter)) < 0 or not meter:
+            return 0.0
+        try:
+            value = c_float()
+            if _method(meter, METER_GET_PEAK, POINTER(c_float))(
+                    meter, byref(value)) < 0:
+                return 0.0
+            return float(value.value)
+        finally:
+            _release(meter)
 
     def _title(self, pid):
         """
