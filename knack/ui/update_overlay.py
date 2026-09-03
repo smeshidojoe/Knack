@@ -12,7 +12,7 @@
 Сделано по образцу такого же окна в Snatchr.
 """
 
-from PySide6.QtCore import QEasingCurve, QRectF, Qt, Signal
+from PySide6.QtCore import QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QFontMetrics, QPainter, QPainterPath
 from PySide6.QtWidgets import QWidget
 
@@ -20,6 +20,7 @@ from ..core import fonts, i18n
 from ..core.constants import PANEL_RADIUS
 from ..core.scale import s, sf
 from . import theme
+from . import anim
 from .anim import Tween
 from .widgets.controls import TextButton
 
@@ -46,8 +47,8 @@ class UpdateOverlay(QWidget):
         self._title = ""
         self._fraction = 0.0
         self._asking = False
-        self._appear = Tween(lambda _v: self.update(), value=0.0, duration=0.26,
-                             on_done=self._on_appeared)
+        self._appear = Tween(lambda _v: self.update(), value=0.0,
+                             duration=anim.DRAWER, on_done=self._on_appeared)
 
         self.yes = TextButton(self, i18n.t("update.now"))
         self.yes.clicked.connect(self._on_yes)
@@ -78,7 +79,7 @@ class UpdateOverlay(QWidget):
         self.show()
         self.raise_()
         self._appear.set(0.0)
-        self._appear.target(1.0, 0.26, QEasingCurve.OutCubic)
+        self._appear.target(1.0, anim.motion(anim.DRAWER), anim.EASE_OUT)
 
     def _on_appeared(self):
         if not self._asking or not self.isVisible():
@@ -104,8 +105,10 @@ class UpdateOverlay(QWidget):
     def _card_rect(self):
         card_w, card_h = s(CARD_W), s(CARD_H)
         left = (self.width() - card_w) / 2
-        top = ((self.height() - card_h) / 2
-               + s(RISE) * (1.0 - self._appear.value))
+        # При выключенной системной анимации карточка не выплывает снизу, а
+        # просто проявляется: убираем движение, прозрачность оставляем.
+        rise = 0.0 if anim.reduced_motion() else s(RISE) * (1.0 - self._appear.value)
+        top = (self.height() - card_h) / 2 + rise
         return QRectF(left, top, card_w, card_h)
 
     def _layout_buttons(self):
@@ -126,7 +129,7 @@ class UpdateOverlay(QWidget):
         self.show()
         self.raise_()
         self._appear.set(0.0)
-        self._appear.target(1.0, 0.26, QEasingCurve.OutCubic)
+        self._appear.target(1.0, anim.motion(anim.DRAWER), anim.EASE_OUT)
 
     def set_title(self, title):
         self._title = title or ""

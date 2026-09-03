@@ -10,13 +10,14 @@
 Клик по ней — поставить обновление, крестик — отложить.
 """
 
-from PySide6.QtCore import QEasingCurve, QRectF, Qt, QTimer, Signal
+from PySide6.QtCore import QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import QCursor, QFontMetrics, QGuiApplication, QPainter, QPen
 from PySide6.QtWidgets import QWidget
 
 from ..core import fonts
 from ..core.scale import s, sf
 from . import theme
+from . import anim
 from .anim import Tween
 
 CARD_W, CARD_H, CARD_R = 236, 58, 12
@@ -25,7 +26,10 @@ TITLE_PX, SUB_PX = 11, 9
 CLOSE_BOX, CLOSE_INSET = 16, 7
 MARGIN = 14                # отступ от края экрана
 RISE = 16                  # на сколько выплывает снизу
-FADE_S = 0.22
+FADE_S = anim.BASE
+# Уход быстрее прихода: приходит плашка, когда решает система, а уходит
+# после того, как человек уже всё решил.
+EXIT_S = anim.FAST
 
 
 class Toast(QWidget):
@@ -73,13 +77,13 @@ class Toast(QWidget):
         self.show()
         self.raise_()
         self._appear.set(0.0)
-        self._appear.target(1.0, FADE_S, QEasingCurve.OutCubic)
+        self._appear.target(1.0, FADE_S, anim.EASE_OUT)
 
     def close_message(self):
         self._life.stop()
         if not self.isVisible():
             return
-        self._appear.target(0.0, FADE_S)
+        self._appear.target(0.0, EXIT_S, anim.EASE_OUT)
 
     def _on_appear(self, _value):
         self._place()
@@ -96,7 +100,10 @@ class Toast(QWidget):
             return
         area = screen.availableGeometry()
         width, height = s(CARD_W), s(CARD_H)
-        rise = int(s(RISE) * (1.0 - self._appear.value))
+        # При выключенной системной анимации плашка не выплывает, а просто
+        # проявляется: убираем движение, оставляем прозрачность.
+        rise = 0 if anim.reduced_motion() else int(
+            s(RISE) * (1.0 - self._appear.value))
         self.setGeometry(area.right() - s(MARGIN) - width + 1,
                          area.bottom() - s(MARGIN) - height + 1 + rise,
                          width, height)

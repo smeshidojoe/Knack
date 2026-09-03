@@ -250,7 +250,10 @@ class MediaPage(Page):
         # пустая строка на месте кнопок читается хуже, чем неактивные кнопки.
         fallback = state is None and self._sounding is not None
 
-        self.play.set_icon("pause" if playing else "play")
+        # Сдвиг нужен только треугольнику Play: пауза симметрична и с ним
+        # съезжала вправо от центра кружка.
+        self.play.set_icon("pause" if playing else "play",
+                           (0.0, 0.0) if playing else (PLAY_DX, 0.0))
         self.equalizer.set_playing(playing or fallback)
         self.equalizer.setVisible(bool(state and state.app_name) or fallback)
 

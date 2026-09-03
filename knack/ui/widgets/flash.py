@@ -10,7 +10,9 @@ from PySide6.QtGui import QColor
 
 from ..anim import Tween
 
-DURATION = 0.55
+# Вспышка «скопировано» держалась больше полусекунды — вдвое дольше бюджета
+# на отклик интерфейса.
+DURATION = 0.3
 PEAK_ALPHA = 0.22
 
 

@@ -8,7 +8,7 @@
 Все контролы работают в координатах макета: размеры приходят через scale.s().
 """
 
-from PySide6.QtCore import QEasingCurve, QPoint, QRectF, Qt, QTimer, Signal
+from PySide6.QtCore import QPoint, QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import QCursor, QFontMetrics, QPainter
 from PySide6.QtWidgets import QWidget
 
@@ -16,6 +16,7 @@ from ...core import fonts
 from ...core.mouse import left_down
 from ...core.scale import s, sf
 from .. import theme
+from .. import anim
 from ..anim import Tween
 
 TEXT_PX = 9
@@ -56,7 +57,8 @@ class Toggle(_Base):
         super().__init__(parent)
         self._checked = bool(checked)
         self._pos = Tween(lambda _v: self.update(),
-                          value=1.0 if self._checked else 0.0, duration=0.16)
+                          value=1.0 if self._checked else 0.0,
+                          duration=anim.FAST, curve=anim.EASE_OUT)
 
     def is_checked(self):
         return self._checked
@@ -492,8 +494,8 @@ class TextButton(_Base):
     clicked = Signal()
 
     H, RADIUS, PAD = 20, 7, 12
-    PRESS_SCALE = 0.92
-    FADE_S = 0.16
+    PRESS_SCALE = 0.97       # заметно, но без прыжка
+    FADE_S = anim.FAST
 
     def __init__(self, parent=None, label="", flat=False):
         super().__init__(parent)
@@ -502,7 +504,7 @@ class TextButton(_Base):
         self._down = False
         self._shown = True
         self._fade_pending = False
-        self._scale = Tween(self._on_scale, value=1.0, duration=0.10,
+        self._scale = Tween(self._on_scale, value=1.0, duration=anim.PRESS,
                             on_done=self._on_scale_done)
         self._fade = Tween(self._on_fade, value=1.0, duration=self.FADE_S,
                            on_done=self._on_fade_done)
@@ -563,7 +565,7 @@ class TextButton(_Base):
         # выглядело бы срабатыванием, которого не будет.
         if event.button() == Qt.LeftButton and self._shown:
             self._down = True
-            self._scale.target(self.PRESS_SCALE, 0.08)
+            self._scale.target(self.PRESS_SCALE, anim.motion(anim.PRESS))
 
     def mouseReleaseEvent(self, event):
         if event.button() != Qt.LeftButton or not self._down:
@@ -573,13 +575,13 @@ class TextButton(_Base):
         # видно вовсе. Доигрываем его от сжатого состояния.
         if self._scale.value > self.PRESS_SCALE:
             self._scale.set(self.PRESS_SCALE)
-        self._scale.target(1.0, 0.18, QEasingCurve.OutBack)
+        self._scale.target(1.0, anim.motion(anim.BASE), anim.EASE_OUT)
         if self.rect().contains(event.position().toPoint()):
             self.clicked.emit()
 
     def leaveEvent(self, event):
         self._down = False
-        self._scale.target(1.0, 0.12)
+        self._scale.target(1.0, anim.motion(anim.PRESS), anim.EASE_OUT)
         super().leaveEvent(event)
 
     def paintEvent(self, _event):

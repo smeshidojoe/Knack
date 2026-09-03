@@ -22,14 +22,17 @@ from PySide6.QtWidgets import QWidget
 from ...core import icons
 from ...core.scale import s, sf
 from .. import theme
+from .. import anim
 from ..anim import Tween
 
-HOVER_SCALE = 1.14
-PRESS_SCALE = 0.90
+# Строку управления музыкой трогают десятки раз в день — движения тут нужно
+# меньше, а не больше: рост на 14% и просадка до 0.90 читались как прыжок.
+HOVER_SCALE = 1.08
+PRESS_SCALE = 0.96
 
-HOVER_MS = 0.16
-PRESS_MS = 0.09
-BACK_MS  = 0.22
+HOVER_MS = anim.FAST
+PRESS_MS = anim.PRESS
+BACK_MS = anim.BASE
 
 
 class IconButton(QWidget):
@@ -72,7 +75,17 @@ class IconButton(QWidget):
     def is_active(self):
         return self._active
 
-    def set_icon(self, name):
+    def set_icon(self, name, offset=None):
+        """
+        Сменить глиф. offset — свой оптический сдвиг для этого глифа.
+
+        Треугольник Play легче своей правой части и требует сдвига вправо, а
+        симметричная пауза — нет: с общим сдвигом она вставала мимо центра
+        кружка.
+        """
+        if offset is not None and tuple(offset) != tuple(self.icon_offset):
+            self.icon_offset = tuple(offset)
+            self.update()
         if name != self.icon_name:
             self.icon_name = name
             self.update()
@@ -114,7 +127,8 @@ class IconButton(QWidget):
         self._down = False
         inside = self.rect().contains(event.position().toPoint())
         self._hover = self._hover and inside
-        self._go(self._rest_scale(), BACK_MS, QEasingCurve.OutBack)
+        # Возврат без перелёта: отскок уместен там, где жест нёс импульс.
+        self._go(self._rest_scale(), BACK_MS, anim.EASE_OUT)
         if inside and self.isEnabled():
             self.clicked.emit()
 

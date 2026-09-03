@@ -2,7 +2,7 @@ import os
 import sys
 
 APP_NAME    = "Knack"
-APP_VERSION = "0.1.7"
+APP_VERSION = "0.1.8"
 
 GITHUB_REPO   = "SmeshidoJoe/Knack"
 DEVELOPER_URL = "https://github.com/SmeshidoJoe"

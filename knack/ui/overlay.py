@@ -13,7 +13,7 @@
 import ctypes
 import time
 
-from PySide6.QtCore import QEasingCurve, QRect, Qt, QTimer, Signal
+from PySide6.QtCore import QRect, Qt, QTimer, Signal
 from PySide6.QtGui import QCursor, QGuiApplication, QPainter, QPainterPath
 from PySide6.QtWidgets import QWidget
 
@@ -40,8 +40,8 @@ from .widgets.text import Text
 WS_EX_NOACTIVATE = 0x08000000
 WS_EX_TOOLWINDOW = 0x00000080
 GWL_EXSTYLE = -20
-SHOW_MS = 0.24
-HIDE_MS = 0.18
+SHOW_MS = anim.DRAWER
+HIDE_MS = anim.FAST      # уход быстрее прихода: система отвечает, а не думает
 TRIGGER_H = 3        # высота зоны у края экрана, px макета
 LEAVE_MARGIN = 10    # запас вокруг панели, px макета
 
@@ -270,6 +270,9 @@ class Overlay(QWidget):
         return self._open
 
     def open_panel(self):
+        # Системную настройку анимаций перечитываем на каждом открытии: её могли
+        # переключить, пока панель была спрятана, а стоит это микросекунды.
+        anim.refresh_reduced_motion()
         # Экран выбираем ОДИН раз, на открытии: если после этого мышь уедет на
         # другой монитор, панель должна уехать обратно туда, где вылезла, а не
         # перепрыгнуть следом.
@@ -296,7 +299,8 @@ class Overlay(QWidget):
             if not was_open:
                 page.on_show()
 
-        self._slide.target(float(open_y), SHOW_MS, QEasingCurve.OutCubic)
+        self._slide.target(float(open_y), anim.motion(SHOW_MS),
+                           anim.EASE_DRAWER)
         self._sync_timer()
         if not was_open:
             self.opened.emit()
@@ -319,7 +323,10 @@ class Overlay(QWidget):
         if page:
             page.on_hide()
 
-        self._slide.target(float(closed_y), HIDE_MS, QEasingCurve.InCubic)
+        # Уход тоже ease-out: ease-in придерживает начало движения — ровно
+        # тот момент, на который человек смотрит.
+        self._slide.target(float(closed_y), anim.motion(HIDE_MS),
+                           anim.EASE_OUT)
         self._sync_timer()
         self.closed.emit()
 

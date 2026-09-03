@@ -258,6 +258,11 @@ typing; focus is taken only on tabs with input fields.
 Animations run at the refresh rate of the monitor rather than a fixed 60 frames —
 the difference shows at 180 Hz. The rate can be pinned to 60 in settings.
 
+Motion follows Windows: turn off "Show animations in Windows" in accessibility
+settings and the panel stops sliding, cards stop rising, and only the fades
+remain. Everything that does move stays under 300 ms and eases out — never in,
+which would hold back the very moment you are looking at.
+
 The layout is drawn for 2560x1440; other resolutions are scaled from the screen
 height: 1080p gives a 718x240 panel, 1440p 835x279, 4K 1070x358. A size slider
 works on top of that.
